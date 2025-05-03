@@ -20,6 +20,7 @@ except:
 def generate_receipt_pdf(transaction_data, client_data, iban_data, company_name, 
                         logo_path=None, receipt_title="REÇU DE TRANSACTION", 
                         additional_notes="", include_signature=True, include_qr=True):
+                        
     """
     Génère un reçu PDF professionnel avec QR code
     

@@ -63,12 +63,12 @@ def generate_account_number():
     return f"C{fake.random_number(digits=10, fix_len=True):010d}"
 
 def format_currency(amount):
-    return f"{amount:,.2f} €"
+    return f"{amount:,.2f} XAF"
 
 # Barre latérale améliorée
 with st.sidebar:
-    st.image(logo_img, width=180)
-    st.markdown("<h1 style='text-align: center;'>GESTION BANQUE</h1>", unsafe_allow_html=True)
+    st.image(logo_img, width=50, use_column_width=True)
+    st.markdown("<h1 style='text-align: center;'>Digital Financial Service</h1>", unsafe_allow_html=True)
     
     if st.session_state['authenticated']:
         st.markdown(
@@ -86,8 +86,8 @@ with st.sidebar:
     # Menu de navigation amélioré
     selected = option_menu(
         menu_title=None,
-        options=["Tableau de Bord", "Gestion Clients", "Gestion des Comptes", "Transactions", "Reçus"],
-        icons=["speedometer2", "people-fill", "credit-card-2-back-fill", "arrow-left-right", "file-earmark-text"],
+        options=["Tableau de Bord", "Gestion Clients", "Gestion des Comptes", "Transactions", "Reçus", "Reçus RIB"],
+        icons=["speedometer2", "people-fill", "credit-card-2-back-fill", "arrow-left-right", "file-earmark-text", "file-earmark-text"],
         default_index=0,
         styles={
             "container": {"padding": "0!important"},
@@ -123,9 +123,9 @@ if selected == "Tableau de Bord":
     with col2:
         st.metric("Transactions Journalières", db.count_daily_transactions(), "12%")
     with col3:
-        st.metric("Dépôts Totaux", f"${db.total_deposits():,.2f}", "8%")
+        st.metric("Dépôts Totaux", f"{db.total_deposits():,.2f} XAF", "8%")
     with col4:
-        st.metric("Retraits Totaux", f"${db.total_withdrawals():,.2f}", "3%")
+        st.metric("Retraits Totaux", f"{db.total_withdrawals():,.2f} XAF", "3%")
     
     # Graphiques
     st.subheader("Analytiques", divider="blue")
@@ -214,11 +214,11 @@ if selected == "Tableau de Bord":
         
         # Affichage avec ag-grid pour plus de fonctionnalités
         st.dataframe(
-            df.style.format({"amount": "€{:.2f}"}),
+            df.style.format({"amount": "{:.2f} XAF"}),
             use_container_width=True,
             column_config={
                 "date": st.column_config.DatetimeColumn("Date", format="DD/MM/YYYY HH:mm"),
-                "amount": st.column_config.NumberColumn("Montant", format="€%.2f")
+                "amount": st.column_config.NumberColumn("Montant", format="%.2f XAF")
             },
             hide_index=True
         )
@@ -343,6 +343,7 @@ elif selected == "Gestion Clients":
                         st.rerun()
         else:
             st.info("Aucun client à modifier", icon="ℹ️")
+            
 
 # Page Gestion des Comptes
 elif selected == "Gestion des Comptes":
@@ -365,8 +366,8 @@ elif selected == "Gestion des Comptes":
             with col2:
                 currency_filter = st.multiselect(
                     "Devise",
-                    options=["EUR", "USD", "GBP"],
-                    default=["EUR", "USD", "GBP"]
+                    options=["XAF", "USD", "GBP", "EUR"],
+                    default=["XAF", "USD", "GBP", "EUR"]
                 )
             with col3:
                 balance_filter = st.slider(
@@ -401,7 +402,7 @@ elif selected == "Gestion des Comptes":
                         "iban": "IBAN",
                         "balance": st.column_config.NumberColumn(
                             "Solde",
-                            format="%.2f €"
+                            format="%.2f XAF"
                         ),
                         "created_at": st.column_config.DatetimeColumn(
                             "Date création",
@@ -426,72 +427,89 @@ elif selected == "Gestion des Comptes":
         
         # Sélection du client
         clients = db.get_all_clients()
-        if clients:
-            client_options = {
-                f"{c['first_name']} {c['last_name']} (ID: {c['id']})": c['id']
-                for c in clients
-            }
+        client_options = {f"{c['first_name']} {c['last_name']}": c['id'] for c in clients}
+        selected_client = st.selectbox("Client*", options=list(client_options.keys()))
+        
+        # Sélection de la banque
+        bank_name = st.selectbox(
+            "Banque*",
+            options=list(db.BANK_DATA.keys()),
+            index=0
+        )
+        
+        # Bouton de génération
+        if st.button("Générer les informations bancaires"):
+            account_data = db.generate_iban(bank_name)
+            st.session_state.new_account = account_data
+        
+        # Affichage des données générées
+        if 'new_account' in st.session_state:
+            acc = st.session_state.new_account
             
-            # Bouton pour générer un IBAN en dehors du formulaire
-            if 'new_iban' not in st.session_state:
-                st.session_state.new_iban = generate_iban()
+            st.markdown("### Informations bancaires générées")
+            cols = st.columns(2)
             
-            if st.button("Générer un nouvel IBAN"):
-                st.session_state.new_iban = generate_iban()
-                st.rerun()
+            cols[0].markdown(f"""
+            **Banque:** {acc['bank_name']}  
+            **Code Banque:** {acc['bank_code']}  
+            **Code Guichet:** {acc['branch_code']}  
+            **Numéro de compte:** {acc['account_number']}  
+            **Clé RIB:** {acc['rib_key']}
+            """)
             
-            with st.form("add_account_form", clear_on_submit=True):
-                col1, col2 = st.columns(2)
-                with col1:
-                    selected_client = st.selectbox(
-                        "Client*",
-                        options=list(client_options.keys()),
-                        index=0
-                    )
-                    client_id = client_options[selected_client]
-                    
-                    account_type = st.selectbox(
-                        "Type de compte*",
-                        options=["Courant", "Épargne", "Entreprise"]
-                    )
+            cols[1].markdown(f"""
+            **IBAN:** {(acc['iban'])}  
+            **BIC/SWIFT:** {acc['bic']}  
+            **Type de compte:** {acc.get('type', 'Courant')}  
+            **Devise:** {acc.get('currency', 'XAF')}
+            """)
+            
+            # Formulaire complémentaire
+            with st.form("account_details_form"):
+                account_type = st.selectbox(
+                    "Type de compte*",
+                    options=["Courant", "Épargne", "Entreprise", "Joint"]
+                )
                 
-                with col2:
-                    iban = st.text_input(
-                        "IBAN*",
-                        value=st.session_state.new_iban,
-                        placeholder="FR76 3000 1000 0100 0000 0000 123"
-                    )
-                    
-                    currency = st.selectbox(
-                        "Devise*",
-                        options=["EUR", "USD", "GBP"]
-                    )
-                    
-                    initial_balance = st.number_input(
-                        "Solde initial*",
-                        min_value=0.0,
-                        value=100.0,
-                        step=50.0
-                    )
+                currency = st.selectbox(
+                    "Devise*",
+                    options=["XAF", "USD", "GBP", "EUR"],
+                )
                 
-                st.markdown("<small>* Champs obligatoires</small>", unsafe_allow_html=True)
+                initial_balance = st.number_input(
+                    "Solde initial*",
+                    min_value=0.0,
+                    value=0.0,
+                    step=50.0
+                )
                 
-                if st.form_submit_button("Créer le compte", type="primary"):
+                if st.form_submit_button("Enregistrer le compte"):
                     try:
-                        account_id = db.add_iban(
-                            client_id=client_id,
-                            iban=iban,
-                            currency=currency,
-                            account_type=account_type,
-                            balance=initial_balance
-                        )
-                        st.toast(f"✅ Compte {iban} créé avec succès!")
-                        del st.session_state.new_iban
-                        st.rerun()
+                        # Construction des données complètes
+                        full_account_data = {
+                            **st.session_state.new_account,
+                            "client_id": client_options[selected_client],
+                            "type": account_type,
+                            "currency": currency,
+                            "balance": initial_balance,
+                            "status": "ACTIF",
+                            "created_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                        }
+                        
+                        # Enregistrement dans la base de données
+                        db.add_account(full_account_data)
+                        st.success("Compte créé avec succès!")
+                        del st.session_state.new_account
                     except Exception as e:
-                        st.error(f"Erreur lors de la création du compte : {str(e)}")
+                        st.error(f"Erreur: {str(e)}")
+
+            # Fonction utilitaire pour formater l'IBAN
+            def format_iban(iban):
+                """Formate l'IBAN pour l'affichage (espace tous les 4 caractères)"""
+                return ' '.join([iban[i:i+4] for i in range(0, len(iban), 4)])
         else:
             st.warning("Aucun client disponible. Veuillez d'abord créer des clients.", icon="⚠️")
+            
     
     with tab3:
         st.subheader("Recherche Avancée")
@@ -594,13 +612,13 @@ elif selected == "Transactions":
                             iban_id = iban_options[selected_iban]
                             if transaction_type == "Dépôt":
                                 db.deposit(iban_id, amount, description)
-                                st.success(f"Dépôt de ${amount:,.2f} effectué avec succès!")
+                                st.success(f"Dépôt de XAF{amount:,.2f} effectué avec succès!")
                             elif transaction_type == "Retrait":
                                 # Vérifier le solde avant retrait
                                 iban_data = next(i for i in client_ibans if i['id'] == iban_id)
                                 if iban_data['balance'] >= amount:
                                     db.withdraw(iban_id, amount, description)
-                                    st.success(f"Retrait de ${amount:,.2f} effectué avec succès!")
+                                    st.success(f"Retrait de XAF{amount:,.2f} effectué avec succès!")
                                 else:
                                     st.error("Solde insuffisant pour effectuer ce retrait.")
                             elif transaction_type == "Virement" and target_id:
@@ -610,13 +628,34 @@ elif selected == "Transactions":
                                     # Transaction atomique
                                     db.withdraw(iban_id, amount, f"Virement vers {target_account}")
                                     db.deposit(target_id, amount, f"Virement depuis {iban_data['iban']}")
-                                    st.success(f"Virement de ${amount:,.2f} effectué avec succès!")
+                                    st.success(f"Virement de XAF{amount:,.2f} effectué avec succès!")
                                 else:
                                     st.error("Solde insuffisant pour effectuer ce virement.")
                             time.sleep(1)
                             st.rerun()
-                else:
-                    st.warning("Ce client n'a aucun IBAN associé.")
+
+                        if selected_iban:
+                            # Si vous avez besoin de chercher par IBAN
+                            all_accounts = db.get_all_ibans()
+                            account_details = next((acc for acc in all_accounts if acc['iban'] == selected_iban), None)
+                            if account_details:
+                                with st.expander("🔍 Détails du compte source"):
+                                    cols = st.columns(2)
+                                    cols[0].markdown(f"""
+                                    **Banque:** {account_details.get('bank_name', 'N/A')}  
+                                    **Code Banque:** {account_details.get('bank_code', 'N/A')}  
+                                    **BIC:** {account_details.get('bic', 'N/A')}  
+                                    **Solde actuel:** {account_details.get('balance', 0):.2f}€
+                                    """)
+                                    
+                                    cols[1].markdown(f"""
+                                    **IBAN:** {account_details.get('iban', 'N/A')}  
+                                    **Code Guichet:** {account_details.get('branch_code', 'N/A')}  
+                                    **Clé RIB:** {account_details.get('rib_key', 'N/A')}  
+                                    **Type:** {account_details.get('type', 'N/A')}
+                                    """)
+                            else:
+                                st.warning("Ce client n'a aucun IBAN associé.")
         else:
             st.warning("Aucun client disponible. Veuillez d'abord ajouter des clients.")
 
@@ -707,7 +746,7 @@ elif selected == "Reçus":
     selected_transaction = st.selectbox(
         "Choisir une transaction à documenter",
         options=filtered_transactions,
-        format_func=lambda t: f"#{t['id']} • {t['type']} • {t['amount']:.2f}€ • {t['date'].split()[0]} • {t.get('description', '')[:30]}{'...' if len(t.get('description', '')) > 30 else ''}",
+        format_func=lambda t: f"#{t['id']} • {t['type']} • {t['amount']:.2f}XAF • {t['date'].split()[0]} • {t.get('description', '')[:30]}{'...' if len(t.get('description', '')) > 30 else ''}",
         index=0
     )
     
@@ -727,7 +766,7 @@ elif selected == "Reçus":
             st.write(f"**🏷 Type client:** {client_data['type']}")
         
         with tab2:
-            st.write(f"**💰 Montant:** {transaction_data['amount']:.2f}€")
+            st.write(f"**💰 Montant:** {transaction_data['amount']:.2f}XAF")
             st.write(f"**📅 Date:** {transaction_data['date']}")
             st.write(f"**🔢 Référence:** {transaction_data['id']}")
             st.write(f"**🏦 IBAN:** {iban_data['iban']}")
@@ -740,7 +779,7 @@ elif selected == "Reçus":
         
         with cols[0]:
             st.markdown("**Paramètres principaux**")
-            company_name = st.text_input("Nom de l'institution", value="Banque Virtuelle")
+            company_name = st.text_input("Nom de l'institution", value="Digital Financial Service")
             receipt_title = st.text_input("Titre du document", value="REÇU DE TRANSACTION")
             company_logo = st.file_uploader("Logo (PNG/JPG)", type=["png", "jpg"])
         
@@ -819,7 +858,7 @@ elif selected == "Reçus":
                         <div class="receipt-section">
                             <h3>Détails de la Transaction</h3>
                             <p><strong>Type:</strong> {transaction_data['type']}</p>
-                            <p><strong>Montant:</strong> ${transaction_data['amount']:,.2f}</p>
+                            <p><strong>Montant:</strong>{transaction_data['amount']:,.2f} XAF</p>
                             <p><strong>Date:</strong> {transaction_data['date']}</p>
                             <p><strong>Référence:</strong> {transaction_data['id']}</p>
                         </div>
@@ -833,3 +872,52 @@ elif selected == "Reçus":
                     </div>
                 </div>
                 """, unsafe_allow_html=True)
+
+# Ajoutez cette section dans votre page "Reçus" (ou créez une nouvelle page)
+elif selected == "Reçus RIB":
+    st.title("📋 Reçus RIB")
+    
+    # Sélection du compte
+    accounts = db.get_all_ibans()
+    if not accounts:
+        st.warning("Aucun compte disponible pour générer un RIB")
+        st.stop()
+    
+    selected_account = st.selectbox(
+        "Sélectionner un compte",
+        options=accounts,
+        format_func=lambda acc: f"{acc['first_name']} {acc['last_name']} - {acc['iban']} ({acc['balance']:,.2f} {acc['currency']})"
+    )
+    
+    if st.button("Générer le RIB", type="primary"):
+        with st.spinner("Génération du RIB en cours..."):
+            try:
+                # Création d'un répertoire pour les reçus s'il n'existe pas
+                os.makedirs("rib_receipts", exist_ok=True)
+                
+                # Génération du RIB
+                receipt_path = db.generate_rib_receipt(
+                    iban=selected_account['iban'],
+                    output_path=f"rib_receipts/RIB_{selected_account['iban']}.pdf"
+                )
+                
+                # Affichage du résultat
+                st.success("RIB généré avec succès!")
+                
+                # Prévisualisation
+                with open(receipt_path, "rb") as f:
+                    base64_pdf = base64.b64encode(f.read()).decode('utf-8')
+                    pdf_display = f'<iframe src="data:application/pdf;base64,{base64_pdf}" width="100%" height="600" type="application/pdf"></iframe>'
+                    st.markdown(pdf_display, unsafe_allow_html=True)
+                
+                # Bouton de téléchargement
+                with open(receipt_path, "rb") as f:
+                    st.download_button(
+                        "Télécharger le RIB",
+                        data=f,
+                        file_name=f"RIB_{selected_account['iban']}.pdf",
+                        mime="application/pdf"
+                    )
+                    
+            except Exception as e:
+                st.error(f"Erreur lors de la génération: {str(e)}")

@@ -6,6 +6,7 @@ sqlalchemy==2.0.25
 
 # Database
 #pysqlite3==0.5.2  # Driver alternatif
+fpdf2==2.8.3  # Pour la génération de PDF
 
 # PDF Generation
 reportlab==4.0.4
