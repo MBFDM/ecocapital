@@ -172,6 +172,23 @@ class BankDatabase:
         except sqlite3.Error as e:
             raise DatabaseError(f"Erreur lors de la mise à jour du schéma: {str(e)}")
 
+        try:
+            with self.conn:
+                cursor = self.conn.cursor()
+                
+                # Vérifier si la colonne date_expiration existe déjà
+                cursor.execute("PRAGMA table_info(avis)")
+                columns = [column[1] for column in cursor.fetchall()]
+                
+                if 'date_expiration' not in columns:
+                    cursor.execute("ALTER TABLE avis ADD COLUMN date_expiration DATE")
+                    
+                if 'commentaires' not in columns:
+                    cursor.execute("ALTER TABLE avis ADD COLUMN commentaires TEXT")
+                    
+        except sqlite3.Error as e:
+            raise DatabaseError(f"Erreur lors de la mise à jour du schéma: {str(e)}")
+
 
     def add_account(self, account_data: dict) -> int:
         """Ajoute un compte bancaire avec toutes les informations requises"""
@@ -287,10 +304,9 @@ class BankDatabase:
         except sqlite3.Error as e:
             raise DatabaseError(f"Erreur lors de la recherche de comptes: {str(e)}")
         
-    # Ajoutez cette fonction dans votre classe BankDatabase
     def generate_rib_receipt(self, iban: str, output_path: str = None) -> str:
         """
-        Génère un reçu RIB (Relevé d'Identité Bancaire) au format PDF
+        Génère un reçu RIB (Relevé d'Identité Bancaire) au format PDF avec design amélioré
         Args:
             iban: IBAN du compte
             output_path: Chemin de sortie du fichier PDF (optionnel)
@@ -303,99 +319,137 @@ class BankDatabase:
             if not account_data:
                 raise NotFoundError(f"Aucun compte trouvé avec l'IBAN {iban}")
             
-            # Création du contenu du RIB
             from fpdf import FPDF
-            
+            from datetime import datetime
+            import os
+
             # Configuration du PDF
             pdf = FPDF()
             pdf.add_page()
-            pdf.set_font("Arial", size=12)
+            pdf.set_auto_page_break(auto=True, margin=15)
             
-            # En-tête
+            # ---- En-tête avec logo ----
+            try:
+                # Ajoutez votre logo (remplacez par le chemin correct)
+                pdf.image("assets/logo.png", x=10, y=8, w=30)
+            except:
+                pass  # Continue si le logo n'est pas trouvé
+            
             pdf.set_font("Arial", 'B', 16)
-            pdf.cell(200, 10, txt="RELEVE D'IDENTITE BANCAIRE", ln=1, align='C')
-            pdf.ln(10)
+            pdf.cell(0, 10, "RELEVE D'IDENTITE BANCAIRE", 0, 1, 'C')
             
-            # Logo et info banque
-            pdf.set_font("Arial", 'B', 12)
-            pdf.cell(200, 10, txt=f"{account_data['bank_name']}", ln=1, align='L')
-            pdf.set_font("Arial", size=10)
-            pdf.cell(200, 7, txt=f"BIC : {account_data['bic']}", ln=1, align='L')
-            pdf.ln(5)
-            
-            # Ligne séparatrice
-            pdf.line(10, pdf.get_y(), 200, pdf.get_y())
-            pdf.ln(10)
-            
-            # Informations client
-            pdf.set_font("Arial", 'B', 12)
-            pdf.cell(200, 10, txt="Titulaire du compte", ln=1, align='L')
-            pdf.set_font("Arial", size=10)
-            pdf.cell(200, 7, txt=f"Nom : {account_data['first_name']} {account_data['last_name']}", ln=1, align='L')
-            pdf.cell(200, 7, txt=f"Email : {account_data.get('email', 'Non renseigné')}", ln=1, align='L')
-            pdf.cell(200, 7, txt=f"Téléphone : {account_data.get('phone', 'Non renseigné')}", ln=1, align='L')
-            pdf.ln(10)
-            
-            # Détails du compte
-            pdf.set_font("Arial", 'B', 12)
-            pdf.cell(200, 10, txt="Coordonnées Bancaires", ln=1, align='L')
-            
-            # Tableau des infos bancaires
-            pdf.set_fill_color(200, 220, 255)
+            # Référence du document
             pdf.set_font("Arial", 'B', 10)
-            pdf.cell(95, 10, txt="Information", border=1, fill=True)
-            pdf.cell(95, 10, txt="Valeur", border=1, fill=True, ln=1)
+            pdf.cell(0, 5, f"REF: RIB-{datetime.now().strftime('%Y%m%d')}-{iban[-4:]}", 0, 1, 'C')
+            pdf.ln(10)
             
-            pdf.set_font("Arial", size=10)
-            infos = [
-                ("Code Banque", account_data.get('bank_code', 'N/A')),
-                ("Code Guichet", account_data.get('branch_code', 'N/A')),
-                ("Numéro de Compte", account_data.get('account_number', 'N/A')),
-                ("Clé RIB", account_data.get('rib_key', 'N/A')),
-                ("IBAN", account_data.get('iban', 'N/A')),
-                ("Type de Compte", account_data.get('type', 'N/A')),
-                ("Devise", account_data.get('currency', 'N/A')),
-                ("Solde Actuel", f"{account_data.get('balance', 0):,.2f} {account_data.get('currency', 'XAF')}")
+            # ---- Informations Banque ----
+            pdf.set_fill_color(240, 240, 240)
+            pdf.set_font("Arial", 'B', 12)
+            pdf.cell(0, 8, "Informations Bancaires", 0, 1, 'L', True)
+            
+            pdf.set_font("Arial", '', 10)
+            bank_info = [
+                ("Nom Banque", account_data['bank_name']),
+                ("BIC/SWIFT", account_data['bic']),
+                ("Adresse", "123 Avenue des Banques, Brazzaville, Congo"),
+                ("Téléphone", "+242 06 123 4567"),
+                ("Email", "contact@banque.com")
             ]
             
-            for info, value in infos:
-                pdf.cell(95, 8, txt=info, border=1)
-                pdf.cell(95, 8, txt=str(value), border=1, ln=1)
+            for label, value in bank_info:
+                pdf.cell(40, 6, f"{label} :", 0, 0)
+                pdf.cell(0, 6, value, 0, 1)
+            pdf.ln(5)
             
-            pdf.ln(15)
+            # ---- Informations Client ----
+            pdf.set_fill_color(240, 240, 240)
+            pdf.set_font("Arial", 'B', 12)
+            pdf.cell(0, 8, "Informations Client", 0, 1, 'L', True)
             
-            # QR Code (optionnel)
+            pdf.set_font("Arial", '', 10)
+            client_info = [
+                ("Nom", f"{account_data['first_name']} {account_data['last_name']}"),
+                ("Email", account_data.get('email', 'Non renseigné')),
+                ("Téléphone", account_data.get('phone', 'Non renseigné')),
+                ("Type Client", account_data.get('client_type', 'Particulier'))
+            ]
+            
+            for label, value in client_info:
+                pdf.cell(40, 6, f"{label} :", 0, 0)
+                pdf.cell(0, 6, value, 0, 1)
+            pdf.ln(5)
+            
+            # ---- Détails du Compte ----
+            pdf.set_fill_color(240, 240, 240)
+            pdf.set_font("Arial", 'B', 12)
+            pdf.cell(0, 8, "Détails du Compte", 0, 1, 'L', True)
+            
+            # Tableau des informations
+            pdf.set_fill_color(220, 230, 242)
+            pdf.set_font("Arial", 'B', 10)
+            pdf.cell(70, 8, "Champ", 1, 0, 'C', True)
+            pdf.cell(70, 8, "Valeur", 1, 0, 'C', True)
+            pdf.cell(50, 8, "Autre", 1, 1, 'C', True)
+            
+            pdf.set_font("Arial", '', 10)
+            account_details = [
+                ("Code Banque", account_data['bank_code'], ""),
+                ("Code Guichet", account_data['branch_code'], ""),
+                ("Numéro Compte", account_data['account_number'], ""),
+                ("Clé RIB", account_data['rib_key'], ""),
+                ("IBAN", account_data['iban'], ""),
+                ("Type Compte", account_data['type'], ""),
+                ("Devise", account_data['currency'], ""),
+                ("Solde Actuel", f"{account_data.get('balance', 0):,.2f}", account_data['currency'])
+            ]
+            
+            for field, value, extra in account_details:
+                pdf.cell(70, 8, field, 1, 0)
+                pdf.cell(70, 8, value, 1, 0)
+                pdf.cell(50, 8, extra, 1, 1)
+            pdf.ln(10)
+            
+            # ---- QR Code ----
             try:
                 import qrcode
                 from io import BytesIO
                 
+                qr_data = f"""
+                Banque: {account_data['bank_name']}
+                Client: {account_data['first_name']} {account_data['last_name']}
+                IBAN: {account_data['iban']}
+                BIC: {account_data['bic']}
+                Date: {datetime.now().strftime('%d/%m/%Y')}
+                """
+                
                 qr = qrcode.QRCode(
                     version=1,
                     error_correction=qrcode.constants.ERROR_CORRECT_L,
-                    box_size=3,
-                    border=4,
+                    box_size=4,
+                    border=2,
                 )
-                qr.add_data(f"IBAN:{account_data['iban']};BIC:{account_data['bic']}")
+                qr.add_data(qr_data)
                 qr.make(fit=True)
                 
-                img = qr.make_image(fill_color="black", back_color="white")
+                img = qr.make_image(fill_color=(57, 86, 140), back_color="white")  # Couleur bleue professionnelle
                 img_bytes = BytesIO()
                 img.save(img_bytes, format='PNG')
                 img_bytes.seek(0)
                 
-                # Ajout du QR code au PDF
-                pdf.image(img_bytes, x=150, y=pdf.get_y(), w=40)
+                pdf.image(img_bytes, x=150, y=pdf.get_y()+10, w=40)
             except ImportError:
                 pass
             
-            # Pied de page
-            pdf.set_y(-30)
-            pdf.set_font("Arial", 'I', 10)
-            pdf.cell(0, 10, txt="Document généré le " + datetime.now().strftime("%d/%m/%Y"))
+            # ---- Pied de page ----
+            pdf.set_y(-20)
+            pdf.set_font("Arial", 'I', 8)
+            pdf.cell(0, 5, f"Document généré le {datetime.now().strftime('%d/%m/%Y à %H:%M')}", 0, 0, 'C')
             
-            # Génération du fichier
+            # ---- Sauvegarde ----
             if not output_path:
-                output_path = f"RIB_{account_data['iban']}.pdf"
+                os.makedirs("rib_documents", exist_ok=True)
+                output_path = f"rib_documents/RIB_{account_data['iban']}.pdf"
             
             pdf.output(output_path)
             return output_path
@@ -455,8 +509,204 @@ class BankDatabase:
                     FOREIGN KEY (client_id) REFERENCES clients (id)
                 )
                 ''')
+
+                # Table AVI
+                self.conn.execute('''
+                CREATE TABLE IF NOT EXISTS avis (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    reference TEXT UNIQUE NOT NULL DEFAULT ('AVI-' || strftime('%Y%m%d', 'now') || '-' || substr(abs(random()), 1, 4)),
+                    nom_complet TEXT NOT NULL,
+                    code_banque TEXT NOT NULL,
+                    numero_compte TEXT NOT NULL,
+                    devise TEXT NOT NULL CHECK(devise IN ('XAF', 'EUR', 'USD')),
+                    iban TEXT NOT NULL,
+                    bic TEXT NOT NULL,
+                    montant REAL NOT NULL,
+                    date_creation DATE NOT NULL,
+                    date_expiration DATE,
+                    statut TEXT NOT NULL CHECK(statut IN ('Etudiant', 'Fonctionnaire')),
+                    commentaires TEXT,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                )
+                ''')
         except sqlite3.Error as e:
             raise DatabaseError(f"Erreur lors de la création des tables: {str(e)}")
+        
+    def get_avi_by_id(self, avi_id: int) -> Optional[Dict]:
+        """Récupère une AVI par son ID"""
+        try:
+            cursor = self.conn.cursor()
+            cursor.execute('SELECT * FROM avis WHERE id=?', (avi_id,))
+            avi = cursor.fetchone()
+            return dict(avi) if avi else None
+        except sqlite3.Error as e:
+            raise DatabaseError(f"Erreur lors de la récupération de l'AVI: {str(e)}")
+
+    def get_avi_by_reference(self, reference: str) -> Optional[Dict]:
+        """Récupère une AVI par sa référence"""
+        try:
+            cursor = self.conn.cursor()
+            cursor.execute('''
+            SELECT 
+                a.*,
+                i.bank_name,
+                i.bank_code,
+                i.branch_code,
+                i.account_number,
+                i.rib_key
+            FROM avis a
+            LEFT JOIN ibans i ON a.iban = i.iban
+            WHERE a.reference = ?
+            ''', (reference,))
+            
+            avi = cursor.fetchone()
+            return dict(avi) if avi else None
+        except sqlite3.Error as e:
+            raise DatabaseError(f"Erreur lors de la récupération de l'AVI par référence: {str(e)}")
+
+    def get_all_avis(self, with_details: bool = False) -> List[Dict]:
+        """
+        Récupère toutes les attestations AVI
+        Args:
+            with_details: Si True, tente de joindre les tables clients et ibans
+        Returns:
+            Liste des AVI sous forme de dictionnaires
+        """
+        try:
+            cursor = self.conn.cursor()
+            
+            if with_details:
+                cursor.execute('''
+                SELECT 
+                    a.*,
+                    i.bank_name,
+                    i.bank_code,
+                    i.branch_code,
+                    i.account_number,
+                    i.rib_key
+                FROM avis a
+                LEFT JOIN ibans i ON a.iban = i.iban
+                ORDER BY a.date_creation DESC
+                ''')
+            else:
+                cursor.execute('SELECT * FROM avis ORDER BY date_creation DESC')
+                
+            return [dict(row) for row in cursor.fetchall()]
+            
+        except sqlite3.Error as e:
+            raise DatabaseError(f"Erreur lors de la récupération des AVI: {str(e)}")
+
+    def update_avi(self, reference: str, updated_data: Dict) -> bool:
+        """Met à jour une AVI existante en utilisant sa référence"""
+        try:
+            allowed_fields = {
+                'nom_complet', 'code_banque', 'numero_compte', 'devise',
+                'iban', 'bic', 'montant', 'date_creation', 'date_expiration', 'statut'
+            }
+            
+            update_fields = {k: v for k, v in updated_data.items() if k in allowed_fields}
+            
+            if not update_fields:
+                raise ValueError("Aucun champ valide à mettre à jour")
+            
+            with self.conn:
+                cursor = self.conn.cursor()
+                
+                set_clause = ', '.join([f"{field}=?" for field in update_fields])
+                values = list(update_fields.values())
+                values.append(reference)
+                
+                cursor.execute(f'''
+                UPDATE avis
+                SET {set_clause}
+                WHERE reference=?
+                ''', values)
+                
+                return cursor.rowcount > 0
+                
+        except sqlite3.Error as e:
+            raise DatabaseError(f"Erreur lors de la mise à jour de l'AVI: {str(e)}")
+
+    def add_avi(self, avi_data: Dict) -> int:
+        """Ajoute une nouvelle attestation AVI et retourne son ID"""
+        try:
+            required_fields = [
+                'nom_complet', 'code_banque', 'numero_compte', 'devise',
+                'iban', 'bic', 'montant', 'date_creation', 'statut'
+            ]
+            
+            for field in required_fields:
+                if field not in avi_data:
+                    raise ValueError(f"Champ manquant: {field}")
+
+            # Générer une référence unique
+            reference = f"AVI-{datetime.now().strftime('%Y%m%d')}-{random.randint(1000, 9999)}"
+            
+            with self.conn:
+                cursor = self.conn.cursor()
+                cursor.execute('''
+                INSERT INTO avis (
+                    reference, nom_complet, code_banque, numero_compte, devise,
+                    iban, bic, montant, date_creation, date_expiration,
+                    statut, commentaires
+                )
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ''', (
+                    reference,
+                    avi_data['nom_complet'],
+                    avi_data['code_banque'],
+                    avi_data['numero_compte'],
+                    avi_data['devise'],
+                    avi_data['iban'],
+                    avi_data['bic'],
+                    avi_data['montant'],
+                    avi_data['date_creation'],
+                    avi_data.get('date_expiration'),
+                    avi_data['statut'],
+                    avi_data.get('commentaires')
+                ))
+                return cursor.lastrowid
+        except sqlite3.IntegrityError as e:
+            raise IntegrityError(f"Erreur d'intégrité lors de l'ajout de l'AVI: {str(e)}")
+        except sqlite3.Error as e:
+            raise DatabaseError(f"Erreur SQLite lors de l'ajout de l'AVI: {str(e)}")
+
+    def search_avis(self, search_term: str = None, statut: str = None) -> List[Dict]:
+        """
+        Recherche des AVI avec filtres optionnels
+        Args:
+            search_term: Terme de recherche pour référence, nom, IBAN, etc.
+            statut: Filtre par statut (Etudiant, Fonctionnaire)
+        Returns:
+            Liste des AVI correspondantes sous forme de dictionnaires
+        """
+        try:
+            cursor = self.conn.cursor()
+            query = 'SELECT * FROM avis WHERE 1=1'
+            params = []
+            
+            if search_term:
+                query += '''
+                AND (reference LIKE ? OR 
+                    nom_complet LIKE ? OR 
+                    iban LIKE ? OR 
+                    code_banque LIKE ? OR 
+                    numero_compte LIKE ?)
+                '''
+                search_param = f"%{search_term}%"
+                params.extend([search_param]*5)
+                
+            if statut:
+                query += ' AND statut = ?'
+                params.append(statut)
+                
+            query += ' ORDER BY date_creation DESC'
+            
+            cursor.execute(query, params)
+            return [dict(row) for row in cursor.fetchall()]
+            
+        except sqlite3.Error as e:
+            raise DatabaseError(f"Erreur lors de la recherche d'AVI: {str(e)}")
 
 
     # ===== Méthodes pour les clients =====

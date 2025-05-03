@@ -1,3 +1,7 @@
+from io import BytesIO
+from sqlite3 import DatabaseError
+from fpdf import FPDF
+import qrcode
 import streamlit as st
 from streamlit_option_menu import option_menu
 import pandas as pd
@@ -86,8 +90,8 @@ with st.sidebar:
     # Menu de navigation amélioré
     selected = option_menu(
         menu_title=None,
-        options=["Tableau de Bord", "Gestion Clients", "Gestion des Comptes", "Transactions", "Reçus", "Reçus RIB"],
-        icons=["speedometer2", "people-fill", "credit-card-2-back-fill", "arrow-left-right", "file-earmark-text", "file-earmark-text"],
+        options=["Tableau de Bord", "Gestion Clients", "Gestion des Comptes", "Transactions", "Reçus", "Reçus RIB", "Gestion AVI"],
+        icons=["speedometer2", "people-fill", "credit-card-2-back-fill", "arrow-left-right", "file-earmark-text", "file-earmark-pdf", "file-earmark-check"],
         default_index=0,
         styles={
             "container": {"padding": "0!important"},
@@ -921,3 +925,339 @@ elif selected == "Reçus RIB":
                     
             except Exception as e:
                 st.error(f"Erreur lors de la génération: {str(e)}")
+
+elif selected == "Gestion AVI":
+    st.title("📑 Gestion des Attestations de Virement Irrévocable (AVI)")
+    
+    tab1, tab2, tab3, tab4 = st.tabs(["📋 Liste des AVI", "➕ Ajouter AVI", "✏️ Modifier AVI", "🖨 Générer AVI"])
+    
+    with tab1:
+        st.subheader("Liste des Attestations")
+        
+        # Filtres
+        col1, col2 = st.columns(2)
+        with col1:
+            search_term = st.text_input("Rechercher", "")
+        with col2:
+            statut_filter = st.selectbox("Filtrer par statut", ["Tous", "Etudiant", "Fonctionnaire"])
+        
+        # Récupération des AVI
+        avis = db.search_avis(
+            search_term=search_term if search_term else None,
+            statut=statut_filter if statut_filter != "Tous" else None
+        )
+        
+        if avis:
+            df = pd.DataFrame(avis)
+            st.dataframe(
+                df,
+                use_container_width=True,
+                column_config={
+                    "date_creation": st.column_config.DateColumn("Date création", format="DD/MM/YYYY"),
+                    "date_expiration": st.column_config.DateColumn("Date expiration", format="DD/MM/YYYY"),
+                    "montant": st.column_config.NumberColumn("Montant", format="%.2f FCFA")
+                },
+                hide_index=True,
+                column_order=["reference", "nom_complet", "code_banque", "iban", "montant", "date_creation", "statut"]
+            )
+        else:
+            st.info("Aucune attestation trouvée", icon="ℹ️")
+    
+    with tab2:
+        st.subheader("Ajouter une Nouvelle Attestation")
+        with st.form("add_avi_form", clear_on_submit=True):
+            cols = st.columns(2)
+            with cols[0]:
+                nom_complet = st.text_input("Nom complet*", placeholder="Nom Prénom")
+                code_banque = st.text_input("Code Banque*", placeholder="12345")
+                numero_compte = st.text_input("Numéro de Compte*", placeholder="12345678901")
+            with cols[1]:
+                devise = st.selectbox("Devise*", options=["XAF", "EUR", "USD"], index=0)
+                iban = st.text_input("IBAN*", placeholder="CG12345678901234567890")
+                bic = st.text_input("BIC*", placeholder="BANKCGCGXXX")
+            
+            montant = st.number_input("Montant (FCFA)*", min_value=0, value=5000000)
+            date_creation = st.date_input("Date de création*", value=datetime.now())
+            date_expiration = st.date_input("Date d'expiration (optionnel)")
+            statut = st.selectbox("Statut*", options=["Etudiant", "Fonctionnaire"], index=0)  # Ajouté
+            commentaires = st.text_area("Commentaires (optionnel)")
+            
+            if st.form_submit_button("Enregistrer l'AVI", type="primary"):
+                try:
+                    avi_data = {
+                        "nom_complet": nom_complet,
+                        "code_banque": code_banque,
+                        "numero_compte": numero_compte,
+                        "devise": devise,
+                        "iban": iban,
+                        "bic": bic,
+                        "montant": montant,
+                        "date_creation": date_creation.strftime("%Y-%m-%d"),
+                        "date_expiration": date_expiration.strftime("%Y-%m-%d") if date_expiration else None,
+                        "statut": statut,
+                        "commentaires": commentaires
+                    }
+                    
+                    avi_id = db.add_avi(avi_data)
+                    avi_info = db.get_avi_by_id(avi_id)  # Nouvelle méthode à implémenter
+                    st.success(f"Attestation enregistrée avec succès! Référence: {avi_info['reference']}")
+                    time.sleep(2)
+                    st.rerun()
+                except Exception as e:
+                    st.error(f"Erreur: {str(e)}")
+    
+    with tab3:
+        st.subheader("Modifier une Attestation")
+        avis = db.get_all_avis(with_details=True)
+    
+        if avis:
+            selected_avi = st.selectbox(
+                "Choisir une attestation à modifier",
+                options=[a['reference'] for a in avis],
+                format_func=lambda ref: f"{ref} - {next(a['nom_complet'] for a in avis if a['reference'] == ref)}",
+                index=0
+            )
+            
+            avi_data = db.get_avi_by_reference(selected_avi)
+            
+            if avi_data:
+                with st.form("update_avi_form"):
+                    cols = st.columns(2)
+                    with cols[0]:
+                        new_nom = st.text_input("Nom complet", value=avi_data['nom_complet'])
+                        new_code_banque = st.text_input("Code Banque", value=avi_data['code_banque'])
+                        new_numero = st.text_input("Numéro de Compte", value=avi_data['numero_compte'])
+                    with cols[1]:
+                        new_devise = st.selectbox(
+                            "Devise",
+                            options=["XAF", "EUR", "USD"],
+                            index=["XAF", "EUR", "USD"].index(avi_data['devise'])
+                        )
+                        new_iban = st.text_input("IBAN", value=avi_data['iban'])
+                        new_bic = st.text_input("BIC", value=avi_data['bic'])
+                    
+                    try:
+                        montant_value = float(avi_data['montant']) if avi_data['montant'] is not None else 0.0
+                        new_montant = st.number_input(
+                            "Montant (FCFA)",
+                            min_value=0.0,
+                            value=montant_value,
+                            step=1.0,
+                            format="%.2f"  # Format à 2 décimales
+                        )
+                    except (ValueError, TypeError) as e:
+                        st.error(f"Erreur de format du montant: {str(e)}")
+                        new_montant = 0.0
+                    new_date_creation = st.date_input("Date de création", value=datetime.strptime(avi_data['date_creation'], "%Y-%m-%d"))
+                    new_date_expiration = st.date_input("Date d'expiration", 
+                                                      value=datetime.strptime(avi_data['date_expiration'], "%Y-%m-%d") if avi_data['date_expiration'] else None)
+                    new_statut = st.selectbox(
+                        "Statut",
+                        options=["Etudiant", "Fonctionnaire"],
+                        index=["Etudiant", "Fonctionnaire"].index(avi_data['statut'])
+                    )
+                    new_commentaires = st.text_area("Commentaires", value=avi_data.get('commentaires', ''))
+                    
+                    if st.form_submit_button("Mettre à jour", type="primary"):
+                        updated_data = {
+                            "nom_complet": new_nom,
+                            "code_banque": new_code_banque,
+                            "numero_compte": new_numero,
+                            "devise": new_devise,
+                            "iban": new_iban,
+                            "bic": new_bic,
+                            "montant": new_montant,
+                            "date_creation": new_date_creation.strftime("%Y-%m-%d"),
+                            "date_expiration": new_date_expiration.strftime("%Y-%m-%d") if new_date_expiration else None,
+                            "statut": new_statut,
+                            "commentaires": new_commentaires
+                        }
+                        
+                        try:
+                            if db.update_avi(selected_avi, updated_data):
+                                st.success("Attestation mise à jour avec succès!")
+                                time.sleep(1)
+                                st.rerun()
+                            else:
+                                st.error("Échec de la mise à jour - l'attestation n'a pas été trouvée")
+                        except Exception as e:
+                            st.error(f"Erreur lors de la mise à jour: {str(e)}")
+        else:
+            st.info("Aucune attestation à modifier", icon="ℹ️")
+    
+    with tab4:
+        st.subheader("Générer une Attestation")
+        avis = db.get_all_avis(with_details=True)
+        
+        if avis:
+            selected_avi = st.selectbox(
+                "Choisir une attestation à générer",
+                options=[f"{a['reference']} - {a['nom_complet']}" for a in avis],
+                index=0
+            )
+            
+            reference = selected_avi.split(" - ")[0]
+            avi_data = db.get_avi_by_reference(reference)
+            
+            if avi_data:
+                # Bouton de génération
+                if st.button("Générer l'Attestation PDF", type="primary"):
+                    with st.spinner("Génération en cours..."):
+                        try:                          
+                            # Création du PDF
+                            pdf = FPDF()
+                            pdf.add_page()
+                            
+                            # ---- En-tête ----
+                            pdf.set_font('Arial', 'B', 16)
+                            pdf.cell(0, 10, 'ATTESTATION DE VIREMENT IRREVOCABLE', 0, 1, 'C')
+                            
+                            # Référence du document
+                            pdf.set_font('Arial', 'B', 10)
+                            pdf.cell(0, 10, f"DGF/EC-{avi_data['reference']}", 0, 1, 'C')
+                            pdf.ln(10)
+                            
+                            # ---- Logo et entête ----
+                            try:
+                                pdf.image("assets/logo.png", x=10, y=10, w=30)
+                            except:
+                                pass  # Continue sans logo si non trouvé
+                            
+                            # ---- Corps du document ----
+                            pdf.set_font('Arial', '', 12)
+                            intro = [
+                                "Nous soussignés, Eco Capital (E.C), établissement de microfinance agréé pour exercer des",
+                                "activités bancaires en République du Congo conformément au décret n°7236/MEFB-CAB du",
+                                "15 novembre 2007, après avis conforme de la COBAC D-2007/2018, déclarons avoir notre",
+                                "siège au n°1636 Boulevard Denis Sassou Nguesso, Batignol Brazzaville.",
+                                "",
+                                "Représenté par son Directeur Général, Monsieur ILOKO Charmant.",
+                                "",
+                                f"Nous certifions par la présente que Monsieur/Madame {avi_data['nom_complet']}",
+                                "détient un compte courant enregistré dans nos livres avec les caractéristiques suivantes :",
+                                ""
+                            ]
+                            
+                            for line in intro:
+                                pdf.cell(0, 5, line, 0, 2)
+                            
+                            # Informations bancaires en gras
+                            pdf.set_font('Arial', 'B', 12)
+                            pdf.cell(40, 5, "CODE BANQUE :", 0, 0)
+                            pdf.set_font('Arial', '', 12)
+                            pdf.cell(0, 5, avi_data['code_banque'], 0, 1)
+                            
+                            pdf.set_font('Arial', 'B', 12)
+                            pdf.cell(40, 5, "NUMERO COMPTE : ", 0, 0)
+                            pdf.set_font('Arial', '', 12)
+                            pdf.cell(0, 5, avi_data['numero_compte'], 0, 1)
+                            
+                            pdf.set_font('Arial', 'B', 12)
+                            pdf.cell(40, 5, "Devise :", 0, 0)
+                            pdf.set_font('Arial', '', 12)
+                            pdf.cell(0, 5, avi_data['devise'], 0, 1)
+                            pdf.ln(5)
+                            
+                            # ---- Détails du virement ----
+                            details = [
+                                f"Il est l'ordonnateur d'un virement irrévocable et permanent d'un montant total de {avi_data['montant']:,.2f} FCFA",
+                                f"(cinq millions de francs CFA), équivalant actuellement à {avi_data['montant']/650:,.2f} euros,",
+                                "destiné à couvrir les frais liés à ses études en France.",
+                                "",
+                                "Il est précisé que ce compte demeurera bloqué jusqu'à la présentation, par le donneur",
+                                "d'ordre, de ses nouvelles coordonnées bancaires ouvertes en France.",
+                                "",
+                                "À défaut, les fonds ne pourront être remis à sa disposition qu'après présentation de son",
+                                "passeport attestant d'un refus de visa. Toutefois, nous autorisons le donneur d'ordre, à",
+                                "toutes fins utiles, à utiliser notre compte ouvert auprès de United Bank for Africa (UBA).",
+                                ""
+                            ]
+                            
+                            for line in details:
+                                pdf.cell(0, 5, line, 0, 1)
+                            
+                            # ---- Coordonnées bancaires ----
+                            pdf.set_font('Arial', 'B', 12)
+                            pdf.cell(40, 5, "IBAN:", 0, 0)
+                            pdf.set_font('Arial', '', 12)
+                            pdf.cell(0, 5, avi_data['iban'], 0, 1)
+                            
+                            pdf.set_font('Arial', 'B', 12)
+                            pdf.cell(40, 5, "BIC:", 0, 0)
+                            pdf.set_font('Arial', '', 12)
+                            pdf.cell(0, 5, avi_data['bic'], 0, 1)
+                            pdf.ln(10)
+                            
+                            # ---- Clause de validation ----
+                            pdf.cell(0, 5, "En foi de quoi, cette attestation lui est délivrée pour servir et valoir ce que de droit.", 0, 1)
+                            pdf.ln(10)
+                            
+                            # ---- Date et signature ----
+                            pdf.cell(1, 5, f"Fait à Brazzaville, le {datetime.now().strftime('%d %B %Y')}", 0, 1)
+                            pdf.ln(15)
+                            
+                            pdf.cell(0, 5, "Rubain MOUNGALA", 0, 1)
+                            pdf.set_font('Arial', 'B', 12)
+                            pdf.cell(0, 5, "Directeur de la Gestion Financière", 0, 1)
+                            pdf.ln(15)
+                            
+                            # ---- Pied de page ----
+                            footer = [
+                                "Eco capital Sarl",
+                                "Société a responsabilité limité au capital de 60.000.000 XAF",
+                                "Siège social : 1636 Boulevard Denis Sassou Nguesso Brazzaville",
+                                "Contact: 00242 06 931 31 06 /04 001 79 40",
+                                "Web : www.ecocapitale.com mail : contacts@ecocapitale.com",
+                                "RCCM N°CG/BZV/B12-00320NIU N°M24000000665934H",
+                                "Brazzaville République du Congo"
+                            ]
+                            
+                            pdf.set_font('Arial', 'I', 10)
+                            for line in footer:
+                                pdf.cell(0, 4, line, 0, 1, 'C')
+                            
+                            # ---- QR Code ----
+                            qr_data = f"""Nom: {avi_data['nom_complet']}
+                Code Banque: {avi_data['code_banque']}
+                Numéro Compte: {avi_data['numero_compte']}
+                Devise: {avi_data['devise']}
+                IBAN: {avi_data['iban']}
+                BIC: {avi_data['bic']}
+                Montant: {avi_data['montant']:,.2f} FCFA
+                Date: {avi_data['date_creation']}"""
+                            
+                            qr = qrcode.QRCode(version=1, box_size=3, border=2)
+                            qr.add_data(qr_data)
+                            qr.make(fit=True)
+                            img = qr.make_image(fill_color="black", back_color="white")
+                            
+                            img_bytes = BytesIO()
+                            img.save(img_bytes, format='PNG')
+                            img_bytes.seek(0)
+                            
+                            pdf.image(img_bytes, x=160, y=pdf.get_y()-20, w=30)
+                            
+                            # ---- Sauvegarde du fichier ----
+                            os.makedirs("avi_documents", exist_ok=True)
+                            output_path = f"avi_documents/AVI_{avi_data['reference']}.pdf"
+                            pdf.output(output_path)
+                            
+                            # ---- Affichage et téléchargement ----
+                            st.success("Attestation générée avec succès!")
+                            
+                            with open(output_path, "rb") as f:
+                                st.download_button(
+                                    "Télécharger l'AVI",
+                                    data=f,
+                                    file_name=f"AVI_{avi_data['reference']}.pdf",
+                                    mime="application/pdf"
+                                )
+                            
+                            # Prévisualisation
+                            with open(output_path, "rb") as f:
+                                base64_pdf = base64.b64encode(f.read()).decode('utf-8')
+                                pdf_display = f'<iframe src="data:application/pdf;base64,{base64_pdf}" width="100%" height="600" type="application/pdf"></iframe>'
+                                st.markdown(pdf_display, unsafe_allow_html=True)
+                            
+                        except Exception as e:
+                            st.error(f"Erreur lors de la génération: {str(e)}")
