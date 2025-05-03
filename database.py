@@ -95,10 +95,9 @@ class BankDatabase:
     # Dictionnaire des banques avec leurs codes et BIC
     BANK_DATA = {
         "Digital Financial Service": {"code": "30001", "bic": "BVIRFRPP"},
-        "BNP Paribas": {"code": "30004", "bic": "BNPAFRPP"},
-        "Crédit Agricole": {"code": "30006", "bic": "AGRIFRPP"},
-        "Société Générale": {"code": "30003", "bic": "SOGEFRPP"},
-        "LCL": {"code": "30002", "bic": "CRLYFRPP"}
+        "UBA": {"code": "30004", "bic": "UNAFCGCG"},
+        "ECOBANK": {"code": "30006", "bic": "ECOCCGCG"},
+        "Société Générale": {"code": "30003", "bic": "SOGEFRPP"}
     }
     
     def generate_account_number(self, bank_name="Digital Financial Service"):
