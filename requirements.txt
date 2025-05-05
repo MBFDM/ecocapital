@@ -28,3 +28,4 @@ faker==23.2.0
 typing-extensions==4.9.0  # Pour les versions Python <3.10
 
 pdf2docx==0.5.8
+PyPDF2==3.0.1
