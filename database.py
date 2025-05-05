@@ -17,68 +17,6 @@ class NotFoundError(DatabaseError):
     """Erreur lorsque l'élément recherché n'existe pas"""
     pass
 
-class UserManager:
-    def __init__(self, conn: sqlite3.Connection):
-        self.conn = conn
-        self.create_users_table()
-
-    def create_users_table(self) -> None:
-        """Crée la table des utilisateurs si elle n'existe pas"""
-        try:
-            with self.conn:
-                self.conn.execute('''
-                CREATE TABLE IF NOT EXISTS users (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    username TEXT UNIQUE NOT NULL,
-                    email TEXT UNIQUE NOT NULL,
-                    password_hash TEXT NOT NULL,
-                    role TEXT DEFAULT 'user',
-                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                    CHECK (role IN ('user', 'admin', 'manager'))
-                )
-                ''')
-        except sqlite3.Error as e:
-            raise DatabaseError(f"Erreur lors de la création de la table users: {str(e)}")
-
-    def add_user(self, username: str, email: str, password_hash: str, role: str = 'user') -> Optional[int]:
-        """
-        Ajoute un nouvel utilisateur
-        Retourne l'ID de l'utilisateur ou None en cas d'échec
-        """
-        try:
-            with self.conn:
-                cursor = self.conn.cursor()
-                cursor.execute('''
-                INSERT INTO users (username, email, password_hash, role)
-                VALUES (?, ?, ?, ?)
-                ''', (username, email, password_hash, role))
-                return cursor.lastrowid
-        except sqlite3.IntegrityError as e:
-            raise IntegrityError(f"Nom d'utilisateur ou email déjà existant: {str(e)}")
-        except sqlite3.Error as e:
-            raise DatabaseError(f"Erreur lors de l'ajout de l'utilisateur: {str(e)}")
-
-    def get_user_by_username(self, username: str) -> Optional[Dict]:
-        """Récupère un utilisateur par son nom d'utilisateur"""
-        try:
-            cursor = self.conn.cursor()
-            cursor.execute('SELECT * FROM users WHERE username=?', (username,))
-            user = cursor.fetchone()
-            
-            if user:
-                columns = [col[0] for col in cursor.description]
-                return dict(zip(columns, user))
-            return None
-        except sqlite3.Error as e:
-            raise DatabaseError(f"Erreur lors de la récupération de l'utilisateur: {str(e)}")
-
-    def verify_user(self, username: str, password_hash: str) -> Optional[Dict]:
-        """Vérifie les identifiants de l'utilisateur"""
-        user = self.get_user_by_username(username)
-        if user and user['password_hash'] == password_hash:
-            return user
-        return None
-
 
 class BankDatabase:
     def __init__(self, db_name: str = "bank_database.db"):
@@ -415,29 +353,30 @@ class BankDatabase:
                 import qrcode
                 from io import BytesIO
                 
-                qr_data = f"""
-                Banque: {account_data['bank_name']}
-                Client: {account_data['first_name']} {account_data['last_name']}
-                IBAN: {account_data['iban']}
-                BIC: {account_data['bic']}
-                Date: {datetime.now().strftime('%d/%m/%Y')}
-                """
+                qr_data = {
+                    "IBAN": account_data['iban'],
+                    "Nom": f"{account_data['first_name']} {account_data['last_name']}",
+                    "BIC": account_data['bic'],
+                    "Banque": account_data['bank_name'],
+                    "Date": datetime.now().strftime('%d/%m/%Y')
+                }
                 
                 qr = qrcode.QRCode(
                     version=1,
                     error_correction=qrcode.constants.ERROR_CORRECT_L,
-                    box_size=4,
+                    box_size=3,
                     border=2,
                 )
+                
                 qr.add_data(qr_data)
                 qr.make(fit=True)
                 
-                img = qr.make_image(fill_color=(57, 86, 140), back_color="white")  # Couleur bleue professionnelle
+                img = qr.make_image(fill_color="black", back_color="white")
                 img_bytes = BytesIO()
                 img.save(img_bytes, format='PNG')
                 img_bytes.seek(0)
-                
                 pdf.image(img_bytes, x=150, y=pdf.get_y()+10, w=40)
+
             except ImportError:
                 pass
             

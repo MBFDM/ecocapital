@@ -1,7 +1,4 @@
-from io import BytesIO
 from sqlite3 import DatabaseError
-from fpdf import FPDF
-import qrcode
 import streamlit as st
 from streamlit_option_menu import option_menu
 import pandas as pd
@@ -1103,153 +1100,119 @@ elif selected == "Gestion AVI":
                 # Bouton de génération
                 if st.button("Générer l'Attestation PDF", type="primary"):
                     with st.spinner("Génération en cours..."):
-                        try:                          
+                        try:
+                            # Créer le contenu de l'AVI
+                            avi_content = f"""
+                            Nous soussignés, Eco Capital (E.C), établissement de microfinance agréé pour exercer des activités
+                            bancaires en République du Congo conformément au décret n°7236/MEFB-CAB du 15 novembre 2007,
+                            après avis conforme de la COBAC D-2007/2018, déclarons avoir notre siège au n°1636 Boulevard Denis
+                            Sassou Nguesso, Batignol Brazzaville.
+                            
+                            Représenté par son Directeur Général, Monsieur ILOKO Charmant.
+                            
+                            Nous certifions par la présente que Monsieur/Madame {avi_data['nom_complet']} détient un compte courant
+                            enregistré dans nos livres avec les caractéristiques suivantes :
+                            
+                            CODE BANQUE : {avi_data['code_banque']}
+                            NUMERO DE COMPTE : {avi_data['numero_compte']}
+                            Devise : {avi_data['devise']}
+                            
+                            Il est l'ordonnateur d'un virement irrévocable et permanent d'un montant total de {avi_data['montant']:,.2f} FCFA (cinq
+                            millions de francs CFA), équivalant actuellement à {avi_data['montant']/650:,.2f} euros, destiné à couvrir les frais liés à ses études
+                            en France.
+                            
+                            Il est précisé que ce compte demeurera bloqué jusqu'à la présentation, par le donneur d'ordre, de ses
+                            nouvelles coordonnées bancaires ouvertes en France.
+                            
+                            À défaut, les fonds ne pourront être remis à sa disposition qu'après présentation de son passeport
+                            attestant d'un refus de visa. Toutefois, nous autorisons le donneur d'ordre, à toutes fins utiles, à utiliser
+                            notre compte ouvert auprès de United Bank for Africa (UBA).
+                            
+                            IBAN: {avi_data['iban']}
+                            BIC: {avi_data['bic']}
+                            
+                            En foi de quoi, cette attestation lui est délivrée pour servir et valoir ce que de droit.
+                            """
+                            
+                            # Pied de page
+                            footer = """
+                            Eco capital Sarl
+                            Société a responsabilité limité au capital de 60.000.000 XAF
+                            Siège social : 1636 Boulevard Denis Sassou Nguesso Brazzaville
+                            Contact: 00242 06 931 31 06 /04 001 79 40
+                            Web : www.ecocapitale.com mail : contacts@ecocapitale.com
+                            RCCM N°CG/BZV/B12-00320NIU N°M24000000665934H
+                            Brazzaville République du Congo
+                            """
+                            
+                            # Génération du QR code
+                            qr_data = f"""
+                            Nom: {avi_data['nom_complet']}
+                            Code Banque: {avi_data['code_banque']}
+                            Numéro Compte: {avi_data['numero_compte']}
+                            Devise: {avi_data['devise']}
+                            IBAN: {avi_data['iban']}
+                            BIC: {avi_data['bic']}
+                            Montant: {avi_data['montant']:,.2f} FCFA
+                            Date: {avi_data['date_creation']}
+                            """
+                            
                             # Création du PDF
+                            from fpdf import FPDF
+                            import qrcode
+                            from io import BytesIO
+                            
                             pdf = FPDF()
                             pdf.add_page()
                             
-                            # ---- En-tête ----
+                            # En-tête
                             pdf.set_font('Arial', 'B', 16)
-                            pdf.cell(0, 10, 'ATTESTATION DE VIREMENT IRREVOCABLE', 0, 1, 'C')
-                            
-                            # Référence du document
-                            pdf.set_font('Arial', 'B', 10)
-                            pdf.cell(0, 10, f"DGF/EC-{avi_data['reference']}", 0, 1, 'C')
+                            pdf.cell(0, 10, 'ATTESTATION DE VIREMENT IRREVOCABLE', 0, 2, 'C')
                             pdf.ln(10)
                             
-                            # ---- Logo et entête ----
-                            try:
-                                pdf.image("assets/logo.png", x=10, y=10, w=30)
-                            except:
-                                pass  # Continue sans logo si non trouvé
+                            # Logo (si disponible)
+                            pdf.image("assets/logo.png", x=10, y=8, w=30)
                             
-                            # ---- Corps du document ----
+                            # Contenu   
                             pdf.set_font('Arial', '', 12)
-                            intro = [
-                                "Nous soussignés, Eco Capital (E.C), établissement de microfinance agréé pour exercer des",
-                                "activités bancaires en République du Congo conformément au décret n°7236/MEFB-CAB du",
-                                "15 novembre 2007, après avis conforme de la COBAC D-2007/2018, déclarons avoir notre",
-                                "siège au n°1636 Boulevard Denis Sassou Nguesso, Batignol Brazzaville.",
-                                "",
-                                "Représenté par son Directeur Général, Monsieur ILOKO Charmant.",
-                                "",
-                                f"Nous certifions par la présente que Monsieur/Madame {avi_data['nom_complet']}",
-                                "détient un compte courant enregistré dans nos livres avec les caractéristiques suivantes :",
-                                ""
-                            ]
-                            
-                            for line in intro:
-                                pdf.cell(0, 5, line, 0, 2)
-                            
-                            # Informations bancaires en gras
-                            pdf.set_font('Arial', 'B', 12)
-                            pdf.cell(40, 5, "CODE BANQUE :", 0, 0)
-                            pdf.set_font('Arial', '', 12)
-                            pdf.cell(0, 5, avi_data['code_banque'], 0, 1)
-                            
-                            pdf.set_font('Arial', 'B', 12)
-                            pdf.cell(40, 5, "NUMERO COMPTE : ", 0, 0)
-                            pdf.set_font('Arial', '', 12)
-                            pdf.cell(0, 5, avi_data['numero_compte'], 0, 1)
-                            
-                            pdf.set_font('Arial', 'B', 12)
-                            pdf.cell(40, 5, "Devise :", 0, 0)
-                            pdf.set_font('Arial', '', 12)
-                            pdf.cell(0, 5, avi_data['devise'], 0, 1)
-                            pdf.ln(5)
-                            
-                            # ---- Détails du virement ----
-                            details = [
-                                f"Il est l'ordonnateur d'un virement irrévocable et permanent d'un montant total de {avi_data['montant']:,.2f} FCFA",
-                                f"(cinq millions de francs CFA), équivalant actuellement à {avi_data['montant']/650:,.2f} euros,",
-                                "destiné à couvrir les frais liés à ses études en France.",
-                                "",
-                                "Il est précisé que ce compte demeurera bloqué jusqu'à la présentation, par le donneur",
-                                "d'ordre, de ses nouvelles coordonnées bancaires ouvertes en France.",
-                                "",
-                                "À défaut, les fonds ne pourront être remis à sa disposition qu'après présentation de son",
-                                "passeport attestant d'un refus de visa. Toutefois, nous autorisons le donneur d'ordre, à",
-                                "toutes fins utiles, à utiliser notre compte ouvert auprès de United Bank for Africa (UBA).",
-                                ""
-                            ]
-                            
-                            for line in details:
-                                pdf.cell(0, 5, line, 0, 1)
-                            
-                            # ---- Coordonnées bancaires ----
-                            pdf.set_font('Arial', 'B', 12)
-                            pdf.cell(40, 5, "IBAN:", 0, 0)
-                            pdf.set_font('Arial', '', 12)
-                            pdf.cell(0, 5, avi_data['iban'], 0, 1)
-                            
-                            pdf.set_font('Arial', 'B', 12)
-                            pdf.cell(40, 5, "BIC:", 0, 0)
-                            pdf.set_font('Arial', '', 12)
-                            pdf.cell(0, 5, avi_data['bic'], 0, 1)
+                            pdf.multi_cell(0, 5, avi_content)
                             pdf.ln(10)
                             
-                            # ---- Clause de validation ----
-                            pdf.cell(0, 5, "En foi de quoi, cette attestation lui est délivrée pour servir et valoir ce que de droit.", 0, 1)
-                            pdf.ln(10)
-                            
-                            # ---- Date et signature ----
-                            pdf.cell(1, 5, f"Fait à Brazzaville, le {datetime.now().strftime('%d %B %Y')}", 0, 1)
-                            pdf.ln(15)
-                            
-                            pdf.cell(0, 5, "Rubain MOUNGALA", 0, 1)
-                            pdf.set_font('Arial', 'B', 12)
-                            pdf.cell(0, 5, "Directeur de la Gestion Financière", 0, 1)
-                            pdf.ln(15)
-                            
-                            # ---- Pied de page ----
-                            footer = [
-                                "Eco capital Sarl",
-                                "Société a responsabilité limité au capital de 60.000.000 XAF",
-                                "Siège social : 1636 Boulevard Denis Sassou Nguesso Brazzaville",
-                                "Contact: 00242 06 931 31 06 /04 001 79 40",
-                                "Web : www.ecocapitale.com mail : contacts@ecocapitale.com",
-                                "RCCM N°CG/BZV/B12-00320NIU N°M24000000665934H",
-                                "Brazzaville République du Congo"
-                            ]
-                            
-                            pdf.set_font('Arial', 'I', 10)
-                            for line in footer:
-                                pdf.cell(0, 4, line, 0, 1, 'C')
-                            
-                            # ---- QR Code ----
-                            qr_data = f"""Nom: {avi_data['nom_complet']}
-                Code Banque: {avi_data['code_banque']}
-                Numéro Compte: {avi_data['numero_compte']}
-                Devise: {avi_data['devise']}
-                IBAN: {avi_data['iban']}
-                BIC: {avi_data['bic']}
-                Montant: {avi_data['montant']:,.2f} FCFA
-                Date: {avi_data['date_creation']}"""
-                            
-                            qr = qrcode.QRCode(version=1, box_size=3, border=2)
+                            # QR Code
+                            qr = qrcode.QRCode(
+                                version=1,
+                                error_correction=qrcode.constants.ERROR_CORRECT_L,
+                                box_size=4,
+                                border=2,
+                            )
                             qr.add_data(qr_data)
                             qr.make(fit=True)
-                            img = qr.make_image(fill_color="black", back_color="white")
                             
+                            img = qr.make_image(fill_color="black", back_color="white")
                             img_bytes = BytesIO()
                             img.save(img_bytes, format='PNG')
                             img_bytes.seek(0)
                             
-                            pdf.image(img_bytes, x=160, y=pdf.get_y()-20, w=30)
+                            pdf.image(img_bytes, x=150, y=pdf.get_y(), w=40)
+                            pdf.ln(20)
                             
-                            # ---- Sauvegarde du fichier ----
+                            # Pied de page
+                            pdf.set_font('Arial', 'I', 10)
+                            pdf.multi_cell(0, 8, footer)
+                            
+                            # Sauvegarde du fichier
                             os.makedirs("avi_documents", exist_ok=True)
-                            output_path = f"avi_documents/AVI_{avi_data['reference']}.pdf"
+                            output_path = f"avi_documents/AVI_{avi_data['nom_complet']}_{avi_data['date_creation']}.pdf"
                             pdf.output(output_path)
                             
-                            # ---- Affichage et téléchargement ----
+                            # Affichage et téléchargement
                             st.success("Attestation générée avec succès!")
                             
                             with open(output_path, "rb") as f:
                                 st.download_button(
                                     "Télécharger l'AVI",
                                     data=f,
-                                    file_name=f"AVI_{avi_data['reference']}.pdf",
+                                    file_name=f"AVI_{avi_data['nom_complet']}.pdf",
                                     mime="application/pdf"
                                 )
                             
@@ -1261,3 +1224,5 @@ elif selected == "Gestion AVI":
                             
                         except Exception as e:
                             st.error(f"Erreur lors de la génération: {str(e)}")
+        else:
+            st.info("Aucune attestation disponible pour génération", icon="ℹ️")
