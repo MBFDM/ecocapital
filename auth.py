@@ -1133,7 +1133,7 @@ def show_admin_dashboard():
         elif selected == "Gestion des Comptes":
             st.title("💳 Gestion des Comptes Bancaires")
             
-            tab1, tab2, tab3 = st.tabs(["📋 Liste des Comptes", "➕ Associer un Compte"])
+            tab1, tab2 = st.tabs(["📋 Liste des Comptes", "➕ Associer un Compte"])
             
             with tab1:
                 st.subheader("Liste Complète des Comptes")
@@ -1293,6 +1293,7 @@ def show_admin_dashboard():
                         return ' '.join([iban[i:i+4] for i in range(0, len(iban), 4)])
                 else:
                     st.warning("Aucun client disponible. Veuillez d'abord créer des clients.", icon="⚠️")
+                    
 
         # Page Transactions
         elif selected == "Transactions":
