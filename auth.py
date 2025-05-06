@@ -14,8 +14,12 @@ Structure:
 # =============================================
 from io import BytesIO
 import logging
+import re
 import PyPDF2
+from PIL import Image, ImageFilter
+from docx import Document
 from fpdf import FPDF
+import pdfplumber
 import qrcode
 import streamlit as st
 from datetime import datetime
@@ -51,6 +55,7 @@ from reportlab.lib.pagesizes import letter
 import base64
 import qrcode
 from io import BytesIO
+from streamlit.components.v1 import html
 
 # Configuration de la base de données
 DATABASE_NAME = "bank_database.db"
@@ -628,7 +633,7 @@ def admin_dashboard():
     # Configuration de la page
     st.set_page_config(
         page_title="GESTION BANQUE",
-        page_icon="🏦",
+        page_icon="assets/logo.png",
         layout="wide",
         initial_sidebar_state="expanded"
     )
@@ -756,7 +761,7 @@ def show_admin_dashboard():
     # Configuration de la page
     st.set_page_config(
         page_title="GESTION BANQUE",
-        page_icon="🏦",
+        page_icon="assets/logo.png",
         layout="wide",
         initial_sidebar_state="expanded"
     )
@@ -1318,6 +1323,7 @@ def show_admin_dashboard():
                             )
                         else:
                             st.info("Aucun résultat trouvé", icon="ℹ️")
+
         # Page Transactions
         elif selected == "Transactions":
             st.title("⇄ Gestion des Transactions")
@@ -1860,11 +1866,11 @@ def show_admin_dashboard():
                 else:
                     st.info("Aucune attestation à modifier", icon="ℹ️")
             
-            with tab4:
+            with tab4: 
                 st.subheader("Générer une Attestation")
-                avis = db.get_all_avis(with_details=True)
+                avis = db.get_all_avis()
                 
-                if avis:
+                if avi_data:
                     selected_avi = st.selectbox(
                         "Choisir une attestation à générer",
                         options=[f"{a['reference']} - {a['nom_complet']}" for a in avis],
@@ -1874,342 +1880,512 @@ def show_admin_dashboard():
                     reference = selected_avi.split(" - ")[0]
                     avi_data = db.get_avi_by_reference(reference)
                     
-                    if avi_data:
-                        # Bouton de génération
-                        if st.button("Générer l'Attestation PDF", type="primary"):
-                            with st.spinner("Génération en cours..."):
-                                try:                          
-                                    # Création du PDF
-                                    pdf = FPDF()
-                                    pdf.add_page()
-                                    
-                                    # ---- En-tête ----
-                                    pdf.set_font('Arial', 'B', 16)
-                                    pdf.cell(0, 30, 'ATTESTATION DE VIREMENT IRREVOCABLE', 0, 1, 'C')
-                                    
-                                    # Référence du document
-                                    pdf.set_font('Arial', 'B', 10)
-                                    pdf.cell(0, 0, f"DGF/EC-{avi_data['reference']}", 0, 1, 'C')
-                                    pdf.ln(10)
-                                    
-                                    # ---- Logo et entête ----
-                                    try:
-                                        pdf.image("assets/logo.png", x=10, y=10, w=30)
-                                    except:
-                                        pass  # Continue sans logo si non trouvé
-                                    
-                                    # Fonction pour texte justifié
-                                    def justified_text(text, line_height=5):
-                                        lines = text.split('\n')
-                                        for line in lines:
-                                            if line.strip() == "":
-                                                pdf.ln(line_height)
-                                            else:
-                                                pdf.multi_cell(0, line_height, line, 0, 'J')
+                    if st.button("Générer l'Attestation PDF", type="primary"):
+                        with st.spinner("Génération en cours..."):
+                            try:                          
+                                # Création du PDF
+                                pdf = FPDF()
+                                pdf.add_page()
 
-                                    # ---- Corps du document ----
-                                    pdf.set_font('Arial', '', 12)
-                                    intro = [
-                                        "Nous soussignés, Eco Capital (E.C), établissement de microfinance agréé pour exercer des",
-                                        "activités bancaires en République du Congo conformément au décret n°7236/MEFB-CAB du",
-                                        "15 novembre 2007, après avis conforme de la COBAC D-2007/2018, déclarons avoir notre",
-                                        "siège au n°1636 Boulevard Denis Sassou Nguesso, Batignol Brazzaville.",
-                                        "",
-                                        "Représenté par son Directeur Général, Monsieur ILOKO Charmant.",
-                                        "",
-                                        f"Nous certifions par la présente que Monsieur/Madame {avi_data['nom_complet']}",
-                                        "détient un compte courant enregistré dans nos livres avec les caractéristiques suivantes :",
-                                        ""
-                                    ]
+                                def montant_en_lettres(montant):
+                                    """Convertit un montant numérique en lettres françaises avec devise"""
+                                    from num2words import num2words
                                     
-                                    for line in intro:
-                                        pdf.cell(0, 5, line, 0, 2)
+                                    partie_entiere = int(montant)
+                                    partie_decimale = int(round((montant - partie_entiere) * 100))
                                     
-                                    # Informations bancaires en gras
-                                    pdf.set_font('Arial', 'B', 12)
-                                    pdf.cell(40, 5, "CODE BANQUE :", 0, 0)
-                                    pdf.set_font('Arial', '', 12)
-                                    pdf.cell(0, 5, avi_data['code_banque'], 0, 1)
+                                    texte = num2words(partie_entiere, lang='fr')
                                     
-                                    pdf.set_font('Arial', 'B', 12)
-                                    pdf.cell(40, 5, "NUMERO COMPTE : ", 0, 0)
-                                    pdf.set_font('Arial', '', 12)
-                                    pdf.cell(0, 5, avi_data['numero_compte'], 0, 1)
+                                    # Ajout de la devise
+                                    if partie_entiere > 1:
+                                        texte += " francs CFA"
+                                    else:
+                                        texte += " franc CFA"
                                     
-                                    pdf.set_font('Arial', 'B', 12)
-                                    pdf.cell(40, 5, "Devise :", 0, 0)
-                                    pdf.set_font('Arial', '', 12)
-                                    pdf.cell(0, 5, avi_data['devise'], 0, 1)
-                                    pdf.ln(5)
+                                    # Gestion des décimales si nécessaire
+                                    if partie_decimale > 0:
+                                        texte += " et " + num2words(partie_decimale, lang='fr') + " centimes"
                                     
-                                    # ---- Détails du virement ----
-                                    details = [
-                                        f"Il est l'ordonnateur d'un virement irrévocable et permanent d'un montant total de {avi_data['montant']:,.2f} FCFA",
-                                        f"(cinq millions de francs CFA), équivalant actuellement à {avi_data['montant']/650:,.2f} euros,",
-                                        "destiné à couvrir les frais liés à ses études en France.",
-                                        "",
-                                        "Il est précisé que ce compte demeurera bloqué jusqu'à la présentation, par le donneur",
-                                        "d'ordre, de ses nouvelles coordonnées bancaires ouvertes en France.",
-                                        "",
-                                        "À défaut, les fonds ne pourront être remis à sa disposition qu'après présentation de son",
-                                        "passeport attestant d'un refus de visa. Toutefois, nous autorisons le donneur d'ordre, à",
-                                        "toutes fins utiles, à utiliser notre compte ouvert auprès de United Bank for Africa (UBA).",
-                                        ""
-                                    ]
+                                    return texte.capitalize()
+                                
+                                # ---- Ajout des logos floutés en arrière-plan ----
+                                try:
+                                    logo_path = "assets/logo.png"
+                                    img = Image.open(logo_path)
                                     
-                                    for line in details:
-                                        pdf.cell(0, 5, line, 0, 1)
+                                    # Créer une version avec opacité réduite
+                                    if img.mode != 'RGBA':
+                                        img = img.convert('RGBA')
                                     
-                                    # ---- Coordonnées bancaires ----
-                                    pdf.set_font('Arial', 'B', 12)
-                                    pdf.cell(40, 5, "IBAN:", 0, 0)
-                                    pdf.set_font('Arial', '', 12)
-                                    pdf.cell(0, 5, avi_data['iban'], 0, 1)
+                                    data = img.getdata()
+                                    new_data = []
+                                    for item in data:
+                                        new_data.append((item[0], item[1], item[2], int(item[3] * 0.2)))  # 30% opacity
+                                    img.putdata(new_data)
                                     
-                                    pdf.set_font('Arial', 'B', 12)
-                                    pdf.cell(40, 5, "BIC:", 0, 0)
-                                    pdf.set_font('Arial', '', 12)
-                                    pdf.cell(0, 5, avi_data['bic'], 0, 1)
-                                    pdf.ln(10)
+                                    # Convertir en format utilisable par FPDF
+                                    temp_logo = BytesIO()
+                                    img.save(temp_logo, format='PNG')
+                                    temp_logo.seek(0)
                                     
-                                    # ---- Clause de validation ----
-                                    pdf.cell(0, 5, "En foi de quoi, cette attestation lui est délivrée pour servir et valoir ce que de droit.", 0, 1)
-                                    pdf.ln(10)
-                                    
-                                    # ---- Date et signature ----
-                                    pdf.cell(1, 5, f"Fait à Brazzaville, le {datetime.now().strftime('%d %B %Y')}", 0, 1)
-                                    pdf.ln(5)
-                                    
-                                    pdf.cell(0, 5, "Rubain MOUNGALA", 0, 1)
-                                    pdf.set_font('Arial', 'B', 12)
-                                    pdf.cell(0, 5, "Directeur de la Gestion Financière", 0, 1)
-                                    pdf.ln(15)
-                                    
-                                    # ---- Pied de page ----
-                                    footer = [
-                                        "Eco capital Sarl",
-                                        "Société a responsabilité limité au capital de 60.000.000 XAF",
-                                        "Siège social : 1636 Boulevard Denis Sassou Nguesso Brazzaville",
-                                        "Contact: 00242 06 931 31 06 /04 001 79 40",
-                                        "Web : www.ecocapitale.com mail : contacts@ecocapitale.com",
-                                        "RCCM N°CG/BZV/B12-00320NIU N°M24000000665934H",
-                                        "Brazzaville République du Congo"
-                                    ]
-                                    
-                                    pdf.set_font('Arial', 'I', 10)
-                                    for line in footer:
-                                        pdf.cell(0, 4, line, 0, 1, 'C')
-                                    
-                                    # ---- QR Code ----
-                                    qr_data = {
-                                        "Référence": avi_data['reference'],
-                                        "Nom": avi_data['nom_complet'],
-                                        "Code Banque": avi_data['code_banque'],
-                                        "Numéro Compte": avi_data['numero_compte'],
-                                        "IBAN": avi_data['iban'],
-                                        "BIC": avi_data['bic'],
-                                        "Montant": f"{avi_data['montant']:,.2f} FCFA",
-                                        "Date Création": avi_data['date_creation']
-                                    }
-                                    
-                                    qr = qrcode.QRCode(
-                                        version=1,
-                                        error_correction=qrcode.constants.ERROR_CORRECT_L,
-                                        box_size=3,
-                                        border=2,
-                                    )
-                                    
-                                    qr.add_data(qr_data)
-                                    qr.make(fit=True)
-                                    
-                                    img = qr.make_image(fill_color="black", back_color="white")
-                                    img_bytes = BytesIO()
-                                    img.save(img_bytes, format='PNG')
-                                    img_bytes.seek(0)
-                                    
-                                    pdf.image(img_bytes, x=150, y=pdf.get_y()-65, w=40)
-                                    pdf.ln(20)
-                                    
-                                    # ---- Sauvegarde du fichier ----
-                                    os.makedirs("avi_documents", exist_ok=True)
-                                    output_path = f"avi_documents/AVI_{avi_data['reference']}.pdf"
-                                    pdf.output(output_path)
-                                    
-                                    # ---- Affichage et téléchargement ----
-                                    st.success("✅ Attestation générée avec succès!")
-                                    
-                                    # Colonnes pour les boutons et la prévisualisation
-                                    col1, col2 = st.columns([1, 3])
-                                    
-                                    with col1:
-                                        # Bouton de téléchargement
-                                        with open(output_path, "rb") as f:
-                                            st.download_button(
-                                                "⬇️ Télécharger l'AVI",
-                                                data=f,
-                                                file_name=f"AVI_{avi_data['reference']}.pdf",
-                                                mime="application/pdf",
-                                                use_container_width=True
-                                            )
-                                    
-                                    with col2:
-                                        # Bouton pour afficher la prévisualisation
-                                        if st.button("👁️ Aperçu du document", use_container_width=True):
-                                            # Affichage du PDF dans l'interface
-                                            with open(output_path, "rb") as f:
-                                                base64_pdf = base64.b64encode(f.read()).decode('utf-8')
-                                                pdf_display = f"""
-                                                <div style="height: 600px; overflow: auto;">
-                                                    <iframe src="data:application/pdf;base64,{base64_pdf}" width="100%" height="100%" type="application/pdf"></iframe>
-                                                </div>
-                                                """
-                                                st.markdown(pdf_display, unsafe_allow_html=True)
-                                    
-                                    # Afficher automatiquement la prévisualisation
-                                    with open(output_path, "rb") as f:
-                                        base64_pdf = base64.b64encode(f.read()).decode('utf-8')
-                                        pdf_display = f"""
-                                        <div style="height: 600px; overflow: auto; margin-top: 20px; border: 1px solid #ddd; border-radius: 5px;">
-                                            <iframe src="data:application/pdf;base64,{base64_pdf}" width="100%" height="100%" type="application/pdf"></iframe>
-                                        </div>
-                                        """
-                                        st.markdown(pdf_display, unsafe_allow_html=True)
-                                    
+                                    for position in [(30, 30), (120, 200), (50, 300), (100, 100)]:
+                                        pdf.image(temp_logo, x=position[0], y=position[1], w=100)
+                                        
                                 except Exception as e:
-                                    st.error(f"❌ Erreur lors de la génération: {str(e)}")
-                                    st.exception(e)
-    
+                                    st.warning(f"Logo non trouvé ou erreur de traitement: {str(e)}")
+                                
+                                # ---- En-tête ----
+                                pdf.set_font('Arial', 'B', 16)
+                                pdf.cell(0, 30, 'ATTESTATION DE VIREMENT IRREVOCABLE', 0, 1, 'C')
+                                
+                                # Référence du document
+                                pdf.set_font('Arial', 'B', 10)
+                                pdf.cell(0, 0, f"DGF/EC-{avi_data['reference']}", 0, 1, 'C')
+                                pdf.ln(10)
+                                
+                                # ---- Logo et entête ----
+                                try:
+                                    pdf.image("assets/logo.png", x=10, y=10, w=30)
+                                except:
+                                    pass  # Continue sans logo si non trouvé
+                                
+                                # Fonction pour texte justifié
+                                def justified_text(text, line_height=5):
+                                    lines = text.split('\n')
+                                    for line in lines:
+                                        if line.strip() == "":
+                                            pdf.ln(line_height)
+                                        else:
+                                            pdf.multi_cell(0, line_height, line, 0, 'J')
 
-            with tab5:
-                st.subheader("Importer et Modifier un PDF")
+                                # ---- Corps du document ----
+                                pdf.set_font('Arial', '', 12)
+                                intro = [
+                                    "Nous soussignés, Eco Capital (E.C), établissement de microfinance agréé pour exercer des",
+                                    "activités bancaires en République du Congo conformément au décret n°7236/MEFB-CAB du",
+                                    "15 novembre 2007, après avis conforme de la COBAC D-2007/2018, déclarons avoir notre",
+                                    "siège au n°1636 Boulevard Denis Sassou Nguesso, Batignol Brazzaville.",
+                                    "",
+                                    "Représenté par son Directeur Général, Monsieur ILOKO Charmant.",
+                                    "",
+                                    f"Nous certifions par la présente que Monsieur/Madame {avi_data['nom_complet']}",
+                                    "détient un compte courant enregistré dans nos livres avec les caractéristiques suivantes :",
+                                    ""
+                                ]
+                                
+                                for line in intro:
+                                    pdf.cell(0, 5, line, 0, 2)
+                                
+                                # Informations bancaires en gras
+                                pdf.set_font('Arial', 'B', 12)
+                                pdf.cell(40, 5, "CODE BANQUE :", 0, 0)
+                                pdf.set_font('Arial', '', 12)
+                                pdf.cell(0, 5, avi_data['code_banque'], 0, 1)
+                                
+                                pdf.set_font('Arial', 'B', 12)
+                                pdf.cell(45, 5, "NUMERO COMPTE : ", 0, 0)
+                                pdf.set_font('Arial', '', 12)
+                                pdf.cell(0, 5, avi_data['numero_compte'], 0, 1)
+                                
+                                pdf.set_font('Arial', 'B', 12)
+                                pdf.cell(20, 5, "Devise :", 0, 0)
+                                pdf.set_font('Arial', '', 12)
+                                pdf.cell(0, 5, avi_data['devise'], 0, 1)
+                                pdf.ln(5)
+                                
+                                # ---- Détails du virement ----
+                                details = [
+                                    f"Il est l'ordonnateur d'un virement irrévocable et permanent d'un montant total de {avi_data['montant']:,.2f} FCFA",
+                                    f"({montant_en_lettres(avi_data['montant'])}), équivalant actuellement à {avi_data['montant']/650:,.2f} euros,",
+                                    "destiné à couvrir les frais liés à ses études en France.",
+                                    "",
+                                    "Il est précisé que ce compte demeurera bloqué jusqu'à la présentation, par le donneur",
+                                    "d'ordre, de ses nouvelles coordonnées bancaires ouvertes en France.",
+                                    "",
+                                    "À défaut, les fonds ne pourront être remis à sa disposition qu'après présentation de son",
+                                    "passeport attestant d'un refus de visa. Toutefois, nous autorisons le donneur d'ordre, à",
+                                    "toutes fins utiles, à utiliser notre compte ouvert auprès de United Bank for Africa (UBA).",
+                                    ""
+                                ]
+                                
+                                for line in details:
+                                    pdf.cell(0, 5, line, 0, 1)
+                                
+                                # ---- Coordonnées bancaires ----
+                                pdf.set_font('Arial', 'B', 12)
+                                pdf.cell(16, 5, "IBAN :", 0, 0)
+                                pdf.set_font('Arial', '', 12)
+                                pdf.cell(0, 5, avi_data['iban'], 0, 1)
+                                
+                                pdf.set_font('Arial', 'B', 12)
+                                pdf.cell(16, 5, "BIC :", 0, 0)
+                                pdf.set_font('Arial', '', 12)
+                                pdf.cell(0, 5, avi_data['bic'], 0, 1)
+                                pdf.ln(10)
+                                
+                                # ---- Clause de validation ----
+                                pdf.cell(0, 5, "En foi de quoi, cette attestation lui est délivrée pour servir et valoir ce que de droit.", 0, 1)
+                                pdf.ln(10)
+                                
+                                # ---- Date et signature ----
+                                pdf.cell(0, 5, f"Fait à Brazzaville, le {datetime.now().strftime('%d %B %Y')}", 0, 1, 'R')
+                                pdf.ln(5)
+                                
+                                pdf.cell(0, 5, "Rubain MOUNGALA", 0, 1)
+                                pdf.set_font('Arial', 'B', 12)
+                                pdf.cell(0, 5, "Directeur de la Gestion Financière", 0, 1)
+                                pdf.ln(15)
+                                
+                                # ---- Pied de page ----
+                                footer = [
+                                    "Eco capital Sarl",
+                                    "Société a responsabilité limité au capital de 60.000.000 XAF",
+                                    "Siège social : 1636 Boulevard Denis Sassou Nguesso Brazzaville",
+                                    "Contact: 00242 06 931 31 06 /04 001 79 40",
+                                    "Web : www.ecocapitale.com mail : contacts@ecocapitale.com",
+                                    "RCCM N°CG/BZV/B12-00320NIU N°M24000000665934H",
+                                    "Brazzaville République du Congo"
+                                ]
+                                
+                                pdf.set_font('Arial', 'I', 10)
+                                for line in footer:
+                                    pdf.cell(1, 4.5, line, 0, 2, 'L')
+                                
+                                # ---- QR Code ----
+                                qr_data = {
+                                    "Référence": avi_data['reference'],
+                                    "Nom": avi_data['nom_complet'],
+                                    "Code Banque": avi_data['code_banque'],
+                                    "Numéro Compte": avi_data['numero_compte'],
+                                    "IBAN": avi_data['iban'],
+                                    "BIC": avi_data['bic'],
+                                    "Montant": f"{avi_data['montant']:,.2f} FCFA",
+                                    "Date Création": avi_data['date_creation']
+                                }
+                                
+                                qr = qrcode.QRCode(
+                                    version=1,
+                                    error_correction=qrcode.constants.ERROR_CORRECT_L,
+                                    box_size=3,
+                                    border=2,
+                                )
+                                
+                                qr.add_data(qr_data)
+                                qr.make(fit=True)
+                                
+                                img = qr.make_image(fill_color="black", back_color="white")
+                                img_bytes = BytesIO()
+                                img.save(img_bytes, format='PNG')
+                                img_bytes.seek(0)
+                                
+                                pdf.image(img_bytes, x=150, y=pdf.get_y()-40, w=40)
+                                pdf.ln(20)
+                                
+                                # ---- Sauvegarde du fichier ----
+                                os.makedirs("avi_documents", exist_ok=True)
+                                output_path = f"avi_documents/AVI_{avi_data['reference']}.pdf"
+                                pdf.output(output_path)
+                                
+                                # ---- Affichage et téléchargement ----
+                                st.success("✅ Attestation générée avec succès!")
+                                
+                                # Colonnes pour les boutons et la prévisualisation
+                                col1, col2 = st.columns([1, 3])
+                                
+                                with col1:
+                                    # Bouton de téléchargement
+                                    with open(output_path, "rb") as f:
+                                        st.download_button(
+                                            "⬇️ Télécharger l'AVI",
+                                            data=f,
+                                            file_name=f"AVI_{avi_data['reference']}.pdf",
+                                            mime="application/pdf",
+                                            use_container_width=True
+                                        )
+
+                                def show_pdf(file_path):
+                                    try:
+                                        with st.spinner("Chargement du document..."):
+                                            with open(file_path, "rb") as f:
+                                                base64_pdf = base64.b64encode(f.read()).decode('utf-8')
+                                            
+                                            container = st.container(border=True)
+                                            with container:
+                                                st.markdown(f"""
+                                                <div style="height: 600px; overflow: auto;">
+                                                    <object 
+                                                        data="data:application/pdf;base64,{base64_pdf}"
+                                                        type="application/pdf"
+                                                        width="100%" 
+                                                        height="100%"
+                                                        style="border: none;"
+                                                    >
+                                                        <p>Votre navigateur ne supporte pas l'affichage direct de PDF. 
+                                                        <a href="data:application/pdf;base64,{base64_pdf}" download="document.pdf">Télécharger le PDF</a></p>
+                                                    </object>
+                                                </div>
+                                                """, unsafe_allow_html=True)
+                                    except Exception as e:
+                                        st.error(f"Erreur lors du chargement du PDF: {str(e)}")
+                                        st.error("Solution alternative :")
+                                        with open(file_path, "rb") as f:
+                                            st.download_button(
+                                                "⬇️ Télécharger le document PDF",
+                                                data=f,
+                                                file_name="document.pdf",
+                                                mime="application/pdf"
+                                            )
+                                
+                                show_pdf(output_path)
+                                
+                            except Exception as e:
+                                st.error(f"❌ Erreur lors de la génération: {str(e)}")
+                                st.exception(e)
+                        
+            # Fonctions utilitaires (à mettre AVANT le with tab5)
+            def extract_between(text, start, end):
+                """Extrait le texte entre deux chaînes"""
+                start_idx = text.find(start)
+                if start_idx == -1: return None
+                start_idx += len(start)
+                end_idx = text.find(end, start_idx)
+                return text[start_idx:end_idx].strip() if end_idx != -1 else None
+
+            def extract_regex(text, pattern):
+                """Extrait avec une expression régulière"""
+                match = re.search(pattern, text)
+                return match.group(1).strip() if match else None
+
+            def generate_qr_code(data, fill_color="#000000", back_color="#FFFFFF", size=100):
+                """Génère un QR code"""
+                qr = qrcode.QRCode(
+                    version=1,
+                    error_correction=qrcode.constants.ERROR_CORRECT_H,
+                    box_size=10,
+                    border=4,
+                )
+                qr.add_data(data)
+                qr.make(fit=True)
+                return qr.make_image(fill_color=fill_color, back_color=back_color).convert('RGB')
+
+            def add_qr_to_pdf(pdf_file, qr_img, position="Bas droite"):
+                """Ajoute un QR code au PDF original"""
+                temp_qr = BytesIO()
+                qr_img.save(temp_qr, format="PNG")
+                temp_qr.seek(0)
                 
-                # Section d'import de fichier
-                uploaded_file = st.file_uploader("Choisir un fichier PDF", type="pdf")
+                # Lire le PDF original
+                pdf_reader = PyPDF2.PdfReader(pdf_file)
+                pdf_writer = PyPDF2.PdfWriter()
+                
+                # Créer un calque avec le QR code
+                packet = BytesIO()
+                can = canvas.Canvas(packet, pagesize=letter)
+                
+                # Positions ajustées pour ne pas dépasser des marges
+                pos_map = {
+                    "Bas droite": (450, 60),
+                    "Bas gauche": (30, 30),
+                    "Haut droite": (letter[0] - 120, letter[1] - 120),
+                    "Haut gauche": (30, letter[1] - 120),
+                    "Centre": ((letter[0] - 100)/2, (letter[1] - 100)/2)
+                }
+                
+                x, y = pos_map.get(position, pos_map["Bas droite"])
+                
+                # Dessiner le QR code sur le calque
+                can.drawImage(ImageReader(temp_qr), x, y, width=100, height=100, mask='auto')
+                can.save()
+                
+                # Fusionner le calque avec chaque page du PDF original
+                packet.seek(0)
+                qr_pdf = PyPDF2.PdfReader(packet)
+                
+                for page in pdf_reader.pages:
+                    # Créer une nouvelle page avec le contenu original
+                    new_page = page
+                    
+                    # Fusionner avec le calque QR code
+                    new_page.merge_page(qr_pdf.pages[0])
+                    pdf_writer.add_page(new_page)
+                
+                # Sauvegarder le résultat
+                output = BytesIO()
+                pdf_writer.write(output)
+                output.seek(0)
+                return output
+
+            def show_pdf(file):
+                """Affiche un PDF dans l'interface"""
+                if hasattr(file, 'read'):
+                    file.seek(0)
+                    pdf_bytes = file.read()
+                else:
+                    with open(file, "rb") as f:
+                        pdf_bytes = f.read()
+                
+                base64_pdf = base64.b64encode(pdf_bytes).decode('utf-8')
+                
+                pdf_display = f"""
+                <div style="height: 600px; overflow: auto; margin: 1rem 0; border: 1px solid #ddd; border-radius: 8px;">
+                    <embed
+                        src="data:application/pdf;base64,{base64_pdf}"
+                        type="application/pdf"
+                        width="100%"
+                        height="100%"
+                        style="border: none;"
+                    >
+                </div>
+                """
+                st.markdown(pdf_display, unsafe_allow_html=True)
+
+            def convert_word_to_pdf(word_file):
+                """Convertit un fichier Word en PDF"""
+                try:
+                    # Lire le fichier Word
+                    doc = Document(word_file)
+                    
+                    # Créer un fichier PDF temporaire
+                    temp_pdf = BytesIO()
+                    
+                    # Convertir en PDF
+                    doc.save(temp_pdf)
+                    temp_pdf.seek(0)
+                    
+                    return temp_pdf
+                except Exception as e:
+                    st.error(f"Erreur lors de la conversion Word en PDF: {str(e)}")
+                    return None
+
+            # Maintenant le code de l'onglet
+            with tab5:
+                st.subheader("📤 Importer Word/PDF et Ajouter QR Code")
+                
+                uploaded_file = st.file_uploader("Choisir un fichier Word ou PDF", type=["docx", "pdf"], key="file_uploader")
                 
                 if uploaded_file is not None:
-                    # Afficher le PDF importé
-                    st.success("Fichier importé avec succès!")
-                    
-                    # Afficher la prévisualisation du PDF
-                    base64_pdf = base64.b64encode(uploaded_file.read()).decode('utf-8')
-                    pdf_display = f"""
-                    <div style="height: 500px; overflow: auto; margin-bottom: 20px; border: 1px solid #ddd; border-radius: 5px;">
-                        <iframe src="data:application/pdf;base64,{base64_pdf}" width="100%" height="100%" type="application/pdf"></iframe>
-                    </div>
-                    """
-                    st.markdown(pdf_display, unsafe_allow_html=True)
-                    
-                    # Réinitialiser le pointeur du fichier pour le réutiliser
-                    uploaded_file.seek(0)
-                    
-                    # Section pour générer le QR code
-                    st.subheader("Ajouter un QR Code au PDF")
-                    
-                    # Formulaire pour les données du QR code
-                    with st.form("qr_data_form"):
-                        qr_content = st.text_area("Contenu du QR Code", 
-                                                value="Référence: \nNom: \nCode Banque: \nMontant: \nDate: ",
-                                                height=150)
+                    try:
+                        # Convertir en PDF si c'est un fichier Word
+                        if uploaded_file.name.endswith('.docx'):
+                            with st.spinner("Conversion du Word en PDF..."):
+                                pdf_file = convert_word_to_pdf(uploaded_file)
+                                if pdf_file is None:
+                                    st.error("Échec de la conversion Word en PDF")
+                                    st.stop()
+                        else:
+                            pdf_file = uploaded_file
                         
-                        qr_position = st.selectbox("Position du QR Code", 
-                                                ["En bas à droite", "En bas à gauche", "En haut à droite", "En haut à gauche"])
+                        # Extraire le texte du PDF
+                        with st.spinner("Analyse du PDF en cours..."):
+                            pdf_text = ""
+                            with pdfplumber.open(pdf_file) as pdf:
+                                for page in pdf.pages:
+                                    pdf_text += page.extract_text() + "\n"
+
+                            extracted_data = {
+                                'nom': extract_between(pdf_text, "Nous certifions par la présente que", "détient un compte"),
+                                'code_banque': extract_regex(pdf_text, r"CODE BANQUE : (\d+)"),
+                                'numero_compte': extract_regex(pdf_text, r"NUMERO DE COMPTE : ([^\n]+)"),
+                                'devise': extract_regex(pdf_text, r"Devise : ([^\n]+)"),
+                                'iban': extract_regex(pdf_text, r"IBAN: ([^\n]+)"),
+                                'bic': extract_regex(pdf_text, r"BIC: ([^\n]+)"),
+                                'montant': extract_regex(pdf_text, r"montant total de ([\d,]+\.?\d*) FCFA")
+                            }
+
+                        with st.expander("🔍 Données extraites", expanded=True):
+                            st.json({k: v for k, v in extracted_data.items() if v})
+
+                        qr_content = "\n".join([f"{k}: {v}" for k, v in extracted_data.items() if v])
                         
-                        qr_size = st.slider("Taille du QR Code", 50, 200, 100)
+                        # Variables pour stocker le résultat
+                        if 'modified_pdf' not in st.session_state:
+                            st.session_state.modified_pdf = None
                         
-                        submitted = st.form_submit_button("Générer QR Code")
-                    
-                    # Section pour afficher le résultat et télécharger (en dehors du form)
-                    if submitted:
-                        try:
-                            # Créer le QR code
-                            qr = qrcode.QRCode(
-                                version=1,
-                                error_correction=qrcode.constants.ERROR_CORRECT_L,
-                                box_size=10,
-                                border=4,
-                            )
-                            qr.add_data(qr_content)
-                            qr.make(fit=True)
+                        with st.form("qr_settings"):
+                            st.subheader("⚙️ Paramètres du QR Code")
                             
-                            img = qr.make_image(fill_color="black", back_color="white")
+                            col1, col2 = st.columns(2)
+                            with col1:
+                                qr_position = st.selectbox("Position", ["Bas droite", "Bas gauche", "Haut droite", "Haut gauche"], index=0)
+                                qr_size = st.slider("Taille (px)", 50, 150, 80)
                             
-                            # Sauvegarder l'image temporairement
-                            temp_qr_path = "temp_qr.png"
-                            img.save(temp_qr_path)
+                            with col2:
+                                qr_color = st.color_picker("Couleur", "#000000")
+                                bg_color = st.color_picker("Fond", "#FFFFFF")
                             
-                            # Charger le PDF existant
-                            pdf_reader = PyPDF2.PdfReader(uploaded_file)
-                            pdf_writer = PyPDF2.PdfWriter()
-                            
-                            # Ajouter toutes les pages au writer
-                            for page_num in range(len(pdf_reader.pages)):
-                                page = pdf_reader.pages[page_num]
-                                pdf_writer.add_page(page)
-                            
-                            # Créer un nouveau PDF avec le QR code
-                            packet = BytesIO()
-                            can = canvas.Canvas(packet, pagesize=letter)
-                            
-                            # Déterminer la position du QR code
-                            if qr_position == "En bas à droite":
-                                x = 450
-                                y = 50
-                            elif qr_position == "En bas à gauche":
-                                x = 50
-                                y = 50
-                            elif qr_position == "En haut à droite":
-                                x = 450
-                                y = 700
-                            else:  # En haut à gauche
-                                x = 50
-                                y = 700
-                            
-                            # Dessiner le QR code à partir du fichier temporaire
-                            can.drawImage(temp_qr_path, x, y, width=qr_size, height=qr_size)
-                            can.save()
-                            
-                            # Fusionner avec le PDF original
-                            packet.seek(0)
-                            new_pdf = PyPDF2.PdfReader(packet)
-                            
-                            # Ajouter le QR code à chaque page
-                            for page_num in range(len(pdf_writer.pages)):
-                                page = pdf_writer.pages[page_num]
-                                page.merge_page(new_pdf.pages[0])
-                            
-                            # Sauvegarder le résultat
-                            output_path = "modified_pdf_with_qr.pdf"
-                            with open(output_path, "wb") as output_file:
-                                pdf_writer.write(output_file)
-                            
-                            # Supprimer le fichier temporaire
-                            os.remove(temp_qr_path)
-                            
-                            st.success("QR code ajouté au PDF avec succès!")
-                            
-                            # Afficher le résultat
-                            with open(output_path, "rb") as f:
-                                base64_pdf = base64.b64encode(f.read()).decode('utf-8')
-                                pdf_display = f"""
-                                <div style="height: 500px; overflow: auto; margin-top: 20px; border: 1px solid #ddd; border-radius: 5px;">
-                                    <iframe src="data:application/pdf;base64,{base64_pdf}" width="100%" height="100%" type="application/pdf"></iframe>
-                                </div>
-                                """
-                                st.markdown(pdf_display, unsafe_allow_html=True)
-                            
-                            # Bouton de téléchargement (en dehors du form)
-                            with open(output_path, "rb") as f:
+                            # Modifiez la partie génération du QR code dans votre onglet tab5 comme suit :
+                            if st.form_submit_button("🔄 Générer le PDF avec QR Code"):
+                                with st.spinner("Création du nouveau PDF..."):
+                                    try:
+                                        # Vérification et préparation des données pour le QR code
+                                        if not qr_content:
+                                            st.warning("Aucune donnée extraite - Utilisation des informations basiques")
+                                            qr_content = f"Document: {uploaded_file.name}\nDate: {datetime.now().strftime('%Y-%m-%d')}"
+                                        else:
+                                            # Formatage avancé des données
+                                            qr_content = "=== INFORMATIONS DOCUMENT ===\n" + qr_content
+                                        
+                                        # Debug: afficher le contenu qui sera encodé
+                                        st.session_state.qr_debug_content = qr_content
+                                        st.write(f"Données à encoder dans le QR code ({(len(qr_content))} caractères):")
+                                        st.code(qr_content[:200] + ("..." if len(qr_content) > 200 else ""))
+                                        
+                                        # Génération robuste du QR code
+                                        qr = qrcode.QRCode(
+                                            version=None,  # Auto-détection de la version
+                                            error_correction=qrcode.constants.ERROR_CORRECT_H,
+                                            box_size=8,  # Meilleure résolution
+                                            border=2,
+                                        )
+                                        
+                                        # Encodage des données
+                                        qr.add_data(qr_content)
+                                        qr.make(fit=True)
+                                        
+                                        # Création de l'image avec vérification
+                                        qr_img = qr.make_image(fill_color=qr_color, back_color=bg_color).convert('RGB')
+                                        
+                                        # Vérification visuelle immédiate
+                                        with st.expander("Aperçu du QR Code", expanded=True):
+                                            st.image(qr_img, caption="QR Code généré", width=200)
+                                        
+                                        # Insertion dans le PDF
+                                        output_pdf = add_qr_to_pdf(pdf_file, qr_img, position=qr_position)
+                                        st.session_state.modified_pdf = output_pdf
+                                        st.success("✅ PDF généré avec succès!")
+                                        
+                                    except Exception as e:
+                                        st.error(f"❌ Erreur lors de la génération: {str(e)}")
+                                        # Création d'un QR code d'erreur comme fallback
+                                        error_qr = qrcode.make(f"ERREUR: {str(e)}")
+                                        st.session_state.modified_pdf = add_qr_to_pdf(pdf_file, error_qr, position=qr_position)
+                        
+                        # Section de téléchargement et prévisualisation (HORS DU FORMULAIRE)
+                        if st.session_state.modified_pdf:
+                            col1, col2 = st.columns(2)
+                            with col1:
+                                # Bouton de téléchargement
                                 st.download_button(
-                                    "⬇️ Télécharger le PDF modifié",
-                                    data=f,
+                                    "💾 Télécharger",
+                                    data=st.session_state.modified_pdf,
                                     file_name="document_avec_qr.pdf",
                                     mime="application/pdf"
                                 )
+                            
+                            with col2:
+                                if st.button("👁️ Aperçu"):
+                                    show_pdf(st.session_state.modified_pdf)
+                            
+                            # Affichage automatique
+                            st.subheader("📄 Aperçu du document final")
+                            show_pdf(st.session_state.modified_pdf)
                         
-                        except Exception as e:
-                            st.error(f"Erreur lors de l'ajout du QR code: {str(e)}")
-                            if os.path.exists(temp_qr_path):
-                                os.remove(temp_qr_path)
+                        # Aperçu du document original
+                        st.subheader("📄 Aperçu du document original")
+                        show_pdf(pdf_file)
+
+                    except Exception as e:
+                        st.error(f"Erreur lors du traitement: {str(e)}")
             
     except Exception as e:
         st.error(f"Erreur: {str(e)}")
