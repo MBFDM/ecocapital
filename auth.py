@@ -1133,7 +1133,7 @@ def show_admin_dashboard():
         elif selected == "Gestion des Comptes":
             st.title("💳 Gestion des Comptes Bancaires")
             
-            tab1, tab2, tab3 = st.tabs(["📋 Liste des Comptes", "➕ Associer un Compte", "🔍 Recherche Avancée"])
+            tab1, tab2, tab3 = st.tabs(["📋 Liste des Comptes", "➕ Associer un Compte"])
             
             with tab1:
                 st.subheader("Liste Complète des Comptes")
@@ -1293,36 +1293,6 @@ def show_admin_dashboard():
                         return ' '.join([iban[i:i+4] for i in range(0, len(iban), 4)])
                 else:
                     st.warning("Aucun client disponible. Veuillez d'abord créer des clients.", icon="⚠️")
-                    
-            
-            with tab3:
-                st.subheader("Recherche Avancée")
-                
-                with st.form("search_account_form"):
-                    col1, col2 = st.columns(2)
-                    with col1:
-                        client_search = st.text_input("Recherche client (nom, prénom)")
-                        iban_search = st.text_input("Recherche IBAN")
-                    with col2:
-                        min_balance = st.number_input("Solde minimum", min_value=0)
-                        max_balance = st.number_input("Solde maximum", min_value=0, value=100000)
-                    
-                    if st.form_submit_button("Rechercher"):
-                        accounts = db.search_accounts(
-                            client_query=client_search,
-                            iban_query=iban_search,
-                            min_balance=min_balance,
-                            max_balance=max_balance
-                        )
-                        
-                        if accounts:
-                            st.dataframe(
-                                pd.DataFrame(accounts),
-                                use_container_width=True,
-                                hide_index=True
-                            )
-                        else:
-                            st.info("Aucun résultat trouvé", icon="ℹ️")
 
         # Page Transactions
         elif selected == "Transactions":
@@ -2289,7 +2259,7 @@ def show_admin_dashboard():
                                 'devise': extract_regex(pdf_text, r"Devise : ([^\n]+)"),
                                 'iban': extract_regex(pdf_text, r"IBAN: ([^\n]+)"),
                                 'bic': extract_regex(pdf_text, r"BIC: ([^\n]+)"),
-                                'montant': extract_regex(pdf_text, r"montant total de ([\d,]+\.?\d*) FCFA")
+                                'montant': extract_regex(pdf_text, r"montant total de ([^\n]+ FCFA)")
                             }
 
                         with st.expander("🔍 Données extraites", expanded=True):
