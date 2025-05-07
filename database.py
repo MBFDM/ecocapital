@@ -32,10 +32,10 @@ class BankDatabase:
 
     # Dictionnaire des banques avec leurs codes et BIC
     BANK_DATA = {
-        "Digital Financial Service": {"code": "30001", "bic": "BVIRFRPP"},
+        "Digital Financial Service": {"code": "30001", "bic": "UNAFCGCG"},
         "UBA": {"code": "30004", "bic": "UNAFCGCG"},
-        "ECOBANK": {"code": "30006", "bic": "ECOCCGCG"},
-        "Société Générale": {"code": "30003", "bic": "SOGEFRPP"}
+        #"ECOBANK": {"code": "30006", "bic": "ECOCCGCG"},
+        #"Société Générale": {"code": "30003", "bic": "SOGEFRPP"}
     }
     
     def generate_account_number(self, bank_name="Digital Financial Service"):
@@ -274,7 +274,7 @@ class BankDatabase:
                 pass  # Continue si le logo n'est pas trouvé
             
             pdf.set_font("Arial", 'B', 16)
-            pdf.cell(0, 10, "RELEVE D'IDENTITE BANCAIRE", 0, 1, 'C')
+            pdf.cell(0, 10, "RELEVE DE COMPTE", 0, 1, 'C')
             
             # Référence du document
             pdf.set_font("Arial", 'B', 10)
@@ -284,11 +284,11 @@ class BankDatabase:
             # ---- Informations Banque ----
             pdf.set_fill_color(240, 240, 240)
             pdf.set_font("Arial", 'B', 12)
-            pdf.cell(0, 8, "Informations Bancaires", 0, 1, 'L', True)
+            pdf.cell(0, 8, "Informations Comptes", 0, 1, 'L', True)
             
             pdf.set_font("Arial", '', 10)
             bank_info = [
-                ("Nom Banque", account_data['bank_name']),
+                #("Nom Banque", account_data['bank_name']),
                 ("BIC/SWIFT", account_data['bic']),
                 ("Adresse", "123 Avenue des Banques, Brazzaville, Congo"),
                 ("Téléphone", "+242 06 123 4567"),
