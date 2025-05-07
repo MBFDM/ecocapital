@@ -292,7 +292,7 @@ class BankDatabase:
                 ("BIC/SWIFT", account_data['bic']),
                 ("Adresse", "123 Avenue des Banques, Brazzaville, Congo"),
                 ("Téléphone", "+242 06 123 4567"),
-                ("Email", "contact@banque.com")
+                ("Email", "contacts@ecocapitale.com")
             ]
             
             for label, value in bank_info:
