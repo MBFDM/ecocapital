@@ -288,7 +288,7 @@ class BankDatabase:
             
             pdf.set_font("Arial", '', 10)
             bank_info = [
-                #("Nom Banque", account_data['bank_name']),
+                ("Structure Financière", "Eco Capital"),
                 ("BIC/SWIFT", account_data['bic']),
                 ("Adresse", "123 Avenue des Banques, Brazzaville, Congo"),
                 ("Téléphone", "+242 06 123 4567"),
