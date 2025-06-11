@@ -1,7 +1,10 @@
+import logging
+import os
 import sqlite3
 from datetime import datetime, timedelta
 import random
 from typing import Optional, Dict, List, Union
+from venv import logger
 
 from jsonschema import ValidationError
 
@@ -21,12 +24,17 @@ class NotFoundError(DatabaseError):
 class BankDatabase:
     def __init__(self, db_name: str = "bank_database.db"):
         """Initialise la connexion à la base de données et met à jour les tables"""
+        logging.basicConfig(filename='database.log', level=logging.INFO)
+        # Convertir en chemin absolu
+        db_path = os.path.abspath(db_name)
         try:
-            self.conn = sqlite3.connect(db_name)
+            self.conn = sqlite3.connect(db_path, timeout=15)
             self.conn.row_factory = sqlite3.Row
             self.create_tables()
             self.update_database_schema()  # Ajoutez cette ligne
+            logging.info(f"Connexion à la base de données: {db_path}")
         except sqlite3.Error as e:
+            logger.error(f"Erreur de connexion: {str(e)}")
             raise DatabaseError(f"Erreur de connexion à la base de données: {str(e)}")
 
 
@@ -78,6 +86,28 @@ class BankDatabase:
             "iban": f"{country_code}{check_digits}{bban}",
             **account_data
         }
+    
+    def backup_database(self, backup_path: str) -> None:
+        """Crée une sauvegarde de la base de données"""
+        try:
+            with sqlite3.connect(backup_path) as backup:
+                self.conn.backup(backup)
+            logger.info(f"Sauvegarde créée: {backup_path}")
+        except sqlite3.Error as e:
+            logger.error(f"Erreur de sauvegarde: {str(e)}")
+            raise DatabaseError(f"Erreur de sauvegarde: {str(e)}")
+        
+    def check_integrity(self):
+        """Vérifie l'intégrité de la base de données"""
+        try:
+            cursor = self.conn.cursor()
+            cursor.execute("PRAGMA integrity_check")
+            result = cursor.fetchall()
+            logging.info(f"Vérification d'intégrité: {result}")
+            return result
+        except sqlite3.Error as e:
+            logging.error(f"Erreur de vérification d'intégrité: {str(e)}")
+            raise DatabaseError(f"Erreur de vérification d'intégrité: {str(e)}")
 
     def update_database_schema(self) -> None:
         """Met à jour le schéma de la base de données existante"""
@@ -409,7 +439,7 @@ class BankDatabase:
                     last_name TEXT NOT NULL,
                     email TEXT UNIQUE,
                     phone TEXT,
-                    type TEXT CHECK(type IN ('Particulier', 'Entreprise', 'Association')),
+                    type TEXT CHECK(type IN ('Particulier', 'Entreprise', 'VIP')),
                     status TEXT CHECK(status IN ('Actif', 'Inactif', 'En attente')),
                     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                 )
@@ -422,7 +452,7 @@ class BankDatabase:
                     client_id INTEGER NOT NULL,
                     iban TEXT UNIQUE NOT NULL,
                     currency TEXT CHECK(currency IN ('EUR', 'USD', 'GBP', 'XAF')),
-                    type TEXT CHECK(type IN ('Courant', 'Epargne', 'Entreprise')),
+                    type TEXT CHECK(type IN ('Courant', 'Épargne', 'Entreprise')),
                     balance REAL DEFAULT 0 CHECK(balance >= 0),
                     bank_name TEXT NOT NULL,
                     bank_code TEXT NOT NULL,

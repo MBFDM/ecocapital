@@ -57,8 +57,8 @@ import qrcode
 from io import BytesIO
 from streamlit.components.v1 import html
 
-# Configuration de la base de données
-DATABASE_NAME = "bank_database.db"
+# Modifiez cette ligne
+DATABASE_NAME = os.path.abspath("bank_database.db")  # Chemin absolu
 
 # Configuration du logging
 logging.basicConfig(
@@ -314,12 +314,13 @@ def hash_password(password: str) -> str:
     return hashlib.sha256(password.encode()).hexdigest()
 
 def get_db_connection() -> sqlite3.Connection:
-    """Établit une connexion à la base de données"""
-    conn = sqlite3.connect(DATABASE_NAME)
+    """Établit une connexion persistante à la base de données"""
+    conn = sqlite3.connect(DATABASE_NAME, timeout=10)  # Augmentez le timeout
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA foreign_keys = ON")
     conn.execute("PRAGMA journal_mode = WAL")
     conn.execute("PRAGMA synchronous = NORMAL")
+    conn.execute("PRAGMA wal_autocheckpoint = 100")  # Ajoutez ceci
     return conn
 
 def init_session():
@@ -753,6 +754,16 @@ def main():
     """Point d'entrée principal de l'application"""
     init_session()
 
+    if not os.path.exists(DATABASE_NAME):
+        logger.warning("La base de données n'existe pas, création...")
+    
+    # Crée une sauvegarde au démarrage
+    try:
+        db = BankDatabase()
+        db.backup_database(f"{DATABASE_NAME}.backup")
+    except Exception as e:
+        logger.error(f"Erreur initiale: {str(e)}")
+
     check_authentication()
 
  
@@ -1150,8 +1161,8 @@ def show_admin_dashboard():
                     with col2:
                         currency_filter = st.multiselect(
                             "Devise",
-                            options=["XAF", "USD", "GBP", "EUR"],
-                            default=["XAF", "USD", "GBP", "EUR"]
+                            options=["XAF", "USD", "EUR"],
+                            default=["XAF", "USD", "EUR"]
                         )
                     with col3:
                         balance_filter = st.slider(
