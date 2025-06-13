@@ -321,8 +321,8 @@ class BankDatabase:
                 ("Structure Financière", "Eco Capital"),
                 #("Nom", account_data['bank_name']),
                 ("BIC/SWIFT", account_data['bic']),
-                ("Adresse", "123 Avenue des Banques, Brazzaville, Congo"),
-                ("Téléphone", "+242 06 123 4567"),
+                ("Adresse", "1636 Boulevard Dénis SASSOU NGUESSO, Brazzaville, Congo"),
+                ("Téléphone", "+242 06 113 5605"),
                 ("Email", "contacts@ecocapitale.com")
             ]
             
