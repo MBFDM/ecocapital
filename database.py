@@ -68,6 +68,11 @@ class BankDatabase:
             "bank_name": bank_name
         }
 
+    def get_account_by_iban_1(self, iban):
+        """Récupère un compte par son IBAN"""
+        query = "SELECT * FROM accounts WHERE iban = ?"
+        return self.conn.execute(query, (iban,)).fetchone()
+
     def generate_iban(self, bank_name="Digital Financial Service"):
         """Génère un IBAN valide à partir des données bancaires"""
         account_data = self.generate_account_number(bank_name)
@@ -190,6 +195,27 @@ class BankDatabase:
                 return cursor.lastrowid
         except sqlite3.Error as e:
             raise DatabaseError(f"Erreur SQLite: {str(e)}")
+
+    def update_account(self, account_id, account_data):
+        """Met à jour un compte existant"""
+        query = """
+        UPDATE accounts 
+        SET bank_name = ?, bank_code = ?, branch_code = ?, 
+            account_number = ?, rib_key = ?, iban = ?, 
+            bic = ?, type = ?, currency = ?, balance = ?, 
+            status = ?, updated_at = CURRENT_TIMESTAMP
+        WHERE id = ?
+        """
+        params = (
+            account_data['bank_name'], account_data['bank_code'],
+            account_data['branch_code'], account_data['account_number'],
+            account_data['rib_key'], account_data['iban'],
+            account_data['bic'], account_data['type'],
+            account_data['currency'], account_data['balance'],
+            account_data['status'], account_id
+        )
+        self.conn.execute(query, params)
+        self.conn.commit()
 
     def search_accounts(self, client_query: str = None, iban_query: str = None,
                    min_balance: float = None, max_balance: float = None) -> List[Dict]:

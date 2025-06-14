@@ -1144,7 +1144,7 @@ def show_admin_dashboard():
         elif selected == "Gestion des Comptes":
             st.title("💳 Gestion des Comptes Bancaires")
             
-            tab1, tab2 = st.tabs(["📋 Liste des Comptes", "➕ Associer un Compte"])
+            tab1, tab2, tab3  = st.tabs(["📋 Liste des Comptes", "➕ Associer un Compte", "📤 Importer des Comptes"])
             
             with tab1:
                 st.subheader("Liste Complète des Comptes")
@@ -1217,94 +1217,286 @@ def show_admin_dashboard():
                 else:
                     st.info("Aucun compte trouvé", icon="ℹ️")
             
-            with tab2:
-                st.subheader("Associer un Nouveau Compte")
-                
-                # Sélection du client
-                clients = db.get_all_clients()
-                client_options = {f"{c['first_name']} {c['last_name']}": c['id'] for c in clients}
-                selected_client = st.selectbox("Client*", options=list(client_options.keys()))
-                
-                # Sélection de la banque
-                bank_name = st.selectbox(
-                    "Banque*",
-                    options=list(db.BANK_DATA.keys()),
-                    index=0
-                )
-                
-                # Bouton de génération
-                if st.button("Générer les informations bancaires"):
-                    account_data = db.generate_iban(bank_name)
-                    st.session_state.new_account = account_data
-                
-                # Affichage des données générées
-                if 'new_account' in st.session_state:
-                    acc = st.session_state.new_account
-                    
-                    st.markdown("### Informations bancaires générées")
-                    cols = st.columns(2)
-                    
-                    cols[0].markdown(f"""
-                    **Banque:** {acc['bank_name']}  
-                    **Code Banque:** {acc['bank_code']}  
-                    **Code Guichet:** {acc['branch_code']}  
-                    **Numéro de compte:** {acc['account_number']}  
-                    **Clé RIB:** {acc['rib_key']}
-                    """)
-                    
-                    cols[1].markdown(f"""
-                    **IBAN:** {(acc['iban'])}  
-                    **BIC/SWIFT:** {acc['bic']}  
-                    **Type de compte:** {acc.get('type', 'Courant')}  
-                    **Devise:** {acc.get('currency', 'XAF')}
-                    """)
-                    
-                    # Formulaire complémentaire
-                    with st.form("account_details_form"):
-                        account_type = st.selectbox(
-                            "Type de compte*",
-                            options=["Courant", "Épargne", "Entreprise"]
-                        )
-                        
-                        currency = st.selectbox(
-                            "Devise*",
-                            options=["XAF", "USD", "GBP", "EUR"],
-                        )
-                        
-                        initial_balance = st.number_input(
-                            "Solde initial*",
-                            min_value=0.0,
-                            value=0.0,
-                            step=50.0
-                        )
-                        
-                        if st.form_submit_button("Enregistrer le compte"):
-                            try:
-                                # Construction des données complètes
-                                full_account_data = {
-                                    **st.session_state.new_account,
-                                    "client_id": client_options[selected_client],
-                                    "type": account_type,
-                                    "currency": currency,
-                                    "balance": initial_balance,
-                                    "status": "ACTIF",
-                                    "created_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-                                }
-                                
-                                # Enregistrement dans la base de données
-                                db.add_account(full_account_data)
-                                st.success("Compte créé avec succès!")
-                                del st.session_state.new_account
-                            except Exception as e:
-                                st.error(f"Erreur: {str(e)}")
+                # Dans la section "Associer un Nouveau Compte", modifiez le code comme suit :
 
-                    # Fonction utilitaire pour formater l'IBAN
-                    def format_iban(iban):
-                        """Formate l'IBAN pour l'affichage (espace tous les 4 caractères)"""
-                        return ' '.join([iban[i:i+4] for i in range(0, len(iban), 4)])
-                else:
-                    st.warning("Aucun client disponible. Veuillez d'abord créer des clients.", icon="⚠️")
+                with tab2:
+                    st.subheader("Associer un Nouveau Compte")
                     
+                    # Sélection du client
+                    clients = db.get_all_clients()
+                    client_options = {f"{c['first_name']} {c['last_name']}": c['id'] for c in clients}
+                    selected_client = st.selectbox("Client*", options=list(client_options.keys()))
+                    
+                    # Sélection de la banque
+                    bank_name = st.selectbox(
+                        "Banque*",
+                        options=list(db.BANK_DATA.keys()),
+                        index=0
+                    )
+                    
+                    # Bouton de génération
+                    if st.button("Générer les informations bancaires"):
+                        account_data = db.generate_iban(bank_name)
+                        st.session_state.new_account = account_data
+                    
+                    # Affichage et édition des données générées
+                    if 'new_account' in st.session_state:
+                        acc = st.session_state.new_account
+                        
+                        st.markdown("### Informations bancaires générées")
+                        cols = st.columns(2)
+                        
+                        cols[0].markdown(f"""
+                        **Banque:** {acc['bank_name']}  
+                        **Code Banque:** {acc['bank_code']}  
+                        **Code Guichet:** {acc['branch_code']}  
+                        **Numéro de compte:** {acc['account_number']}  
+                        **Clé RIB:** {acc['rib_key']}
+                        """)
+                        
+                        cols[1].markdown(f"""
+                        **IBAN:** {(acc['iban'])}  
+                        **BIC/SWIFT:** {acc['bic']}  
+                        **Type de compte:** {acc.get('type', 'Courant')}  
+                        **Devise:** {acc.get('currency', 'XAF')}
+                        """)
+                        
+                        # Formulaire d'édition des informations bancaires
+                        with st.expander("✏️ Modifier les informations bancaires", expanded=False):
+                            cols = st.columns(2)
+                            with cols[0]:
+                                acc['bank_name'] = st.text_input(
+                                    "Banque*",
+                                    value=acc['bank_name']
+                                )
+                                acc['bank_code'] = st.text_input(
+                                    "Code Banque*",
+                                    value=acc['bank_code'],
+                                    max_chars=5
+                                )
+                                acc['branch_code'] = st.text_input(
+                                    "Code Guichet*",
+                                    value=acc['branch_code'],
+                                    max_chars=5
+                                )
+                                acc['account_number'] = st.text_input(
+                                    "Numéro de compte*",
+                                    value=acc['account_number'],
+                                    max_chars=11
+                                )
+                                acc['rib_key'] = st.text_input(
+                                    "Clé RIB*",
+                                    value=acc['rib_key'],
+                                    max_chars=2
+                                )
+                            
+                            with cols[1]:
+                                acc['iban'] = st.text_input(
+                                    "IBAN*",
+                                    value=acc['iban'],
+                                    max_chars=27
+                                )
+                                acc['bic'] = st.text_input(
+                                    "BIC/SWIFT*",
+                                    value=acc['bic'],
+                                    max_chars=11
+                                )
+                        
+                        # Formulaire complémentaire
+                        with st.form("account_details_form"):
+                            account_type = st.selectbox(
+                                "Type de compte*",
+                                options=["Courant", "Épargne", "Entreprise"]
+                            )
+                            
+                            currency = st.selectbox(
+                                "Devise*",
+                                options=["XAF", "USD", "EUR"],
+                            )
+                            
+                            initial_balance = st.number_input(
+                                "Solde initial*",
+                                min_value=0.0,
+                                value=0.0,
+                                step=50.0
+                            )
+                            
+                            if st.form_submit_button("Enregistrer le compte"):
+                                try:
+                                    # Construction des données complètes
+                                    full_account_data = {
+                                        **st.session_state.new_account,
+                                        "client_id": client_options[selected_client],
+                                        "type": account_type,
+                                        "currency": currency,
+                                        "balance": initial_balance,
+                                        "status": "ACTIF",
+                                        "created_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                                    }
+                                    
+                                    # Validation des données
+                                    if not all([full_account_data['bank_code'], full_account_data['branch_code'], 
+                                            full_account_data['account_number'], full_account_data['rib_key'],
+                                            full_account_data['iban'], full_account_data['bic']]):
+                                        st.error("Tous les champs bancaires doivent être remplis")
+                                    else:
+                                        # Enregistrement dans la base de données
+                                        db.add_account(full_account_data)
+                                        st.success("Compte créé avec succès!")
+                                        del st.session_state.new_account
+                                except Exception as e:
+                                    st.error(f"Erreur: {str(e)}")
+
+                        # Fonction utilitaire pour formater l'IBAN
+                        def format_iban(iban):
+                            """Formate l'IBAN pour l'affichage (espace tous les 4 caractères)"""
+                            return ' '.join([iban[i:i+4] for i in range(0, len(iban), 4)])
+                    
+                with tab3:
+                    st.subheader("📤 Importer des Comptes depuis Excel")
+                    
+                    # Création dynamique du modèle Excel
+                    def generate_template():
+                        output = BytesIO()
+                        writer = pd.ExcelWriter(output, engine='xlsxwriter')
+                        
+                        # Création d'un DataFrame exemple
+                        sample_data = {
+                            'client_id': [1, 2],
+                            'bank_name': ['Ma Banque', 'Autre Banque'],
+                            'bank_code': ['12345', '67890'],
+                            'branch_code': ['12345', '67890'],
+                            'account_number': ['12345678901', '98765432109'],
+                            'rib_key': ['12', '34'],
+                            'iban': ['FR7612345123451234567890112', 'FR769876543219876543210934'],
+                            'bic': ['ABCDEFGH', 'IJKLMNOP'],
+                            'type': ['Courant', 'Épargne'],
+                            'currency': ['XAF', 'EUR'],
+                            'balance': [1000.00, 5000.00],
+                            'status': ['ACTIF', 'ACTIF']
+                        }
+                        df = pd.DataFrame(sample_data)
+                        
+                        # Écriture dans le fichier Excel
+                        df.to_excel(writer, index=False, sheet_name='Comptes')
+                        writer.close()
+                        return output.getvalue()
+                    
+                    # Téléchargement du modèle
+                    st.markdown("### Télécharger le modèle")
+                    st.download_button(
+                        label="📥 Télécharger le modèle Excel",
+                        data=generate_template(),
+                        file_name="modele_import_comptes.xlsx",
+                        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                    )
+                    
+                    # Upload du fichier
+                    st.markdown("### Importer un fichier Excel")
+                    uploaded_file = st.file_uploader(
+                        "Choisir un fichier Excel", 
+                        type=["xlsx", "xls"],
+                        accept_multiple_files=False
+                    )
+                    
+                    if uploaded_file is not None:
+                        try:
+                            # Lecture du fichier Excel
+                            df = pd.read_excel(uploaded_file)
+                            
+                            # Vérification des colonnes obligatoires
+                            required_columns = ['client_id', 'bank_name', 'bank_code', 'branch_code', 
+                                            'account_number', 'rib_key', 'iban', 'bic', 
+                                            'type', 'currency', 'balance']
+                            
+                            missing_cols = [col for col in required_columns if col not in df.columns]
+                            if missing_cols:
+                                st.error(f"Colonnes manquantes dans le fichier: {', '.join(missing_cols)}")
+                            else:
+                                # Aperçu des données
+                                st.markdown("### Aperçu des données à importer")
+                                st.dataframe(df.head(3))
+                                
+                                # Options d'importation
+                                with st.expander("Options d'importation", expanded=True):
+                                    col1, col2 = st.columns(2)
+                                    with col1:
+                                        update_existing = st.checkbox(
+                                            "Mettre à jour les comptes existants",
+                                            value=False,
+                                            help="Si coché, les comptes existants avec le même IBAN seront mis à jour"
+                                        )
+                                    with col2:
+                                        skip_errors = st.checkbox(
+                                            "Ignorer les erreurs",
+                                            value=True,
+                                            help="Si coché, les lignes avec erreurs seront ignorées"
+                                        )
+                                
+                                # Bouton d'importation
+                                if st.button("⚡ Importer les comptes", type="primary"):
+                                    progress_bar = st.progress(0)
+                                    status_text = st.empty()
+                                    imported_count = 0
+                                    updated_count = 0
+                                    error_count = 0
+                                    
+                                    for i, row in df.iterrows():
+                                        try:
+                                            # Préparation des données
+                                            account_data = {
+                                                "client_id": int(row['client_id']),
+                                                "bank_name": str(row['bank_name']),
+                                                "bank_code": str(row['bank_code']),
+                                                "branch_code": str(row['branch_code']),
+                                                "account_number": str(row['account_number']),
+                                                "rib_key": str(row['rib_key']),
+                                                "iban": str(row['iban']).replace(" ", "").upper(),
+                                                "bic": str(row['bic']).upper(),
+                                                "type": str(row['type']),
+                                                "currency": str(row['currency']),
+                                                "balance": float(row['balance']),
+                                                "status": str(row.get('status', 'ACTIF')),
+                                                "created_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                                            }
+                                            
+                                            # Vérification de l'existence du compte
+                                            existing_account = db.get_account_by_iban(account_data['iban'])
+                                            
+                                            if existing_account:
+                                                if update_existing:
+                                                    db.update_account(existing_account['id'], account_data)
+                                                    updated_count += 1
+                                                else:
+                                                    st.warning(f"Le compte avec IBAN {account_data['iban']} existe déjà (ignoré)")
+                                                    error_count += 1
+                                                    continue
+                                            else:
+                                                db.add_account(account_data)
+                                                imported_count += 1
+                                            
+                                            progress_bar.progress((i + 1) / len(df))
+                                            status_text.text(f"Import en cours... {i + 1}/{len(df)} lignes traitées")
+                                            
+                                        except Exception as e:
+                                            error_count += 1
+                                            if not skip_errors:
+                                                st.error(f"Erreur ligne {i + 2}: {str(e)}")
+                                                break
+                                            continue
+                                    
+                                    # Résumé de l'import
+                                    st.success(f"""Import terminé!
+                                    - {imported_count} nouveaux comptes
+                                    - {updated_count} comptes mis à jour
+                                    - {error_count} erreurs""")
+                                    
+                                    # Rafraîchir l'affichage
+                                    st.rerun()
+                                    
+                        except Exception as e:
+                            st.error(f"Erreur lors de la lecture du fichier: {str(e)}")
+       
 
         # Page Transactions
         elif selected == "Transactions":
@@ -1423,9 +1615,6 @@ def show_admin_dashboard():
                                             """)
                                     else:
                                         st.warning("Ce client n'a aucun IBAN associé.")
-                else:
-                    st.warning("Aucun client disponible. Veuillez d'abord ajouter des clients.")
-
 
         # Page Générer Reçu
         elif selected == "Reçus":
@@ -2039,7 +2228,7 @@ def show_admin_dashboard():
                                     "Nom": avi_data['nom_complet'],
                                     "Code Banque": avi_data['code_banque'],
                                     "Numéro Compte": avi_data['numero_compte'],
-                                    "IBAN": avi_data['iban'],
+                                    #"IBAN": avi_data['iban'],
                                     "BIC": avi_data['bic'],
                                     "Montant": f"{avi_data['montant']:,.2f} FCFA",
                                     "Date Création": avi_data['date_creation']
