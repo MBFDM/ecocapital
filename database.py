@@ -1,6 +1,6 @@
 import logging
 import os
-import mysql.connector
+import sqlite3
 from datetime import datetime, timedelta
 import random
 from typing import Optional, Dict, List, Union
@@ -22,23 +22,21 @@ class NotFoundError(DatabaseError):
 
 
 class BankDatabase:
-    def __init__(self, host: str = "db-mav-1.cdeaqqe46t76.eu-north-1.rds.amazonaws.com", user: str = "admin", 
-                 password: str = "Frz5E1LTv49J7xF6MQleP0hgrYrCO3ybyHpJujA", database: str = "ecocapital"):
-        """Initialise la connexion à la base de données MySQL et met à jour les tables"""
+    def __init__(self, db_name: str = "bank_database.db"):
+        """Initialise la connexion à la base de données et met à jour les tables"""
         logging.basicConfig(filename='database.log', level=logging.INFO)
+        # Convertir en chemin absolu
+        db_path = os.path.abspath(db_name)
         try:
-            self.conn = mysql.connector.connect(
-                host=host,
-                user=user,
-                password=password,
-                database=database
-            )
+            self.conn = sqlite3.connect(db_path, timeout=15)
+            self.conn.row_factory = sqlite3.Row
             self.create_tables()
-            self.update_database_schema()
-            logging.info(f"Connexion à la base de données MySQL: {database}")
-        except mysql.connector.Error as e:
+            self.update_database_schema()  # Ajoutez cette ligne
+            logging.info(f"Connexion à la base de données: {db_path}")
+        except sqlite3.Error as e:
             logger.error(f"Erreur de connexion: {str(e)}")
             raise DatabaseError(f"Erreur de connexion à la base de données: {str(e)}")
+
 
     # Dictionnaire des banques avec leurs codes et BIC
     BANK_DATA = {
@@ -72,10 +70,8 @@ class BankDatabase:
 
     def get_account_by_iban_1(self, iban):
         """Récupère un compte par son IBAN"""
-        query = "SELECT * FROM accounts WHERE iban = %s"
-        cursor = self.conn.cursor(dictionary=True)
-        cursor.execute(query, (iban,))
-        return cursor.fetchone()
+        query = "SELECT * FROM accounts WHERE iban = ?"
+        return self.conn.execute(query, (iban,)).fetchone()
 
     def generate_iban(self, bank_name="Digital Financial Service"):
         """Génère un IBAN valide à partir des données bancaires"""
@@ -99,12 +95,10 @@ class BankDatabase:
     def backup_database(self, backup_path: str) -> None:
         """Crée une sauvegarde de la base de données"""
         try:
-            # MySQL doesn't have a built-in backup like SQLite, so we'll dump the database
-            import subprocess
-            command = f"mysqldump -u {self.conn.user} -p{self.conn.password} {self.conn.database} > {backup_path}"
-            subprocess.run(command, shell=True, check=True)
+            with sqlite3.connect(backup_path) as backup:
+                self.conn.backup(backup)
             logger.info(f"Sauvegarde créée: {backup_path}")
-        except Exception as e:
+        except sqlite3.Error as e:
             logger.error(f"Erreur de sauvegarde: {str(e)}")
             raise DatabaseError(f"Erreur de sauvegarde: {str(e)}")
         
@@ -112,63 +106,60 @@ class BankDatabase:
         """Vérifie l'intégrité de la base de données"""
         try:
             cursor = self.conn.cursor()
-            cursor.execute("CHECK TABLE ibans, clients, transactions, avis")
+            cursor.execute("PRAGMA integrity_check")
             result = cursor.fetchall()
             logging.info(f"Vérification d'intégrité: {result}")
             return result
-        except mysql.connector.Error as e:
+        except sqlite3.Error as e:
             logging.error(f"Erreur de vérification d'intégrité: {str(e)}")
             raise DatabaseError(f"Erreur de vérification d'intégrité: {str(e)}")
 
     def update_database_schema(self) -> None:
         """Met à jour le schéma de la base de données existante"""
         try:
-            cursor = self.conn.cursor()
-            
-            # Vérifier et ajouter les colonnes manquantes dans la table ibans
-            cursor.execute("""
-            SELECT COLUMN_NAME 
-            FROM INFORMATION_SCHEMA.COLUMNS 
-            WHERE TABLE_SCHEMA = %s AND TABLE_NAME = 'ibans'
-            """, (self.conn.database,))
-            columns = [column[0] for column in cursor.fetchall()]
-            
-            # Ajoutez les colonnes manquantes
-            if 'bank_name' not in columns:
-                cursor.execute("ALTER TABLE ibans ADD COLUMN bank_name VARCHAR(255)")
-            
-            if 'bank_code' not in columns:
-                cursor.execute("ALTER TABLE ibans ADD COLUMN bank_code VARCHAR(50)")
+            with self.conn:
+                # Vérifiez quelles colonnes existent déjà dans la table ibans
+                cursor = self.conn.cursor()
+                cursor.execute("PRAGMA table_info(ibans)")
+                columns = [column[1] for column in cursor.fetchall()]
                 
-            if 'bic' not in columns:
-                cursor.execute("ALTER TABLE ibans ADD COLUMN bic VARCHAR(20)")
+                # Ajoutez les colonnes manquantes
+                if 'bank_name' not in columns:
+                    cursor.execute("ALTER TABLE ibans ADD COLUMN bank_name TEXT")
                 
-            if 'rib_key' not in columns:
-                cursor.execute("ALTER TABLE ibans ADD COLUMN rib_key VARCHAR(10)")
-                
-            if 'account_number' not in columns:
-                cursor.execute("ALTER TABLE ibans ADD COLUMN account_number VARCHAR(50)")
-                
-            if 'branch_code' not in columns:
-                cursor.execute("ALTER TABLE ibans ADD COLUMN branch_code VARCHAR(50)")
-                
-            # Vérifier et ajouter les colonnes manquantes dans la table avis
-            cursor.execute("""
-            SELECT COLUMN_NAME 
-            FROM INFORMATION_SCHEMA.COLUMNS 
-            WHERE TABLE_SCHEMA = %s AND TABLE_NAME = 'avis'
-            """, (self.conn.database,))
-            columns = [column[0] for column in cursor.fetchall()]
-            
-            if 'date_expiration' not in columns:
-                cursor.execute("ALTER TABLE avis ADD COLUMN date_expiration DATE")
-                
-            if 'commentaires' not in columns:
-                cursor.execute("ALTER TABLE avis ADD COLUMN commentaires TEXT")
-                
-            self.conn.commit()
+                if 'bank_code' not in columns:
+                    cursor.execute("ALTER TABLE ibans ADD COLUMN bank_code TEXT")
                     
-        except mysql.connector.Error as e:
+                if 'bic' not in columns:
+                    cursor.execute("ALTER TABLE ibans ADD COLUMN bic TEXT")
+                    
+                if 'rib_key' not in columns:
+                    cursor.execute("ALTER TABLE ibans ADD COLUMN rib_key TEXT")
+                    
+                if 'account_number' not in columns:
+                    cursor.execute("ALTER TABLE ibans ADD COLUMN account_number TEXT")
+                    
+                if 'branch_code' not in columns:
+                    cursor.execute("ALTER TABLE ibans ADD COLUMN branch_code TEXT")
+                    
+        except sqlite3.Error as e:
+            raise DatabaseError(f"Erreur lors de la mise à jour du schéma: {str(e)}")
+
+        try:
+            with self.conn:
+                cursor = self.conn.cursor()
+                
+                # Vérifier si la colonne date_expiration existe déjà
+                cursor.execute("PRAGMA table_info(avis)")
+                columns = [column[1] for column in cursor.fetchall()]
+                
+                if 'date_expiration' not in columns:
+                    cursor.execute("ALTER TABLE avis ADD COLUMN date_expiration DATE")
+                    
+                if 'commentaires' not in columns:
+                    cursor.execute("ALTER TABLE avis ADD COLUMN commentaires TEXT")
+                    
+        except sqlite3.Error as e:
             raise DatabaseError(f"Erreur lors de la mise à jour du schéma: {str(e)}")
 
 
@@ -181,39 +172,39 @@ class BankDatabase:
                 if field not in account_data:
                     raise ValueError(f"Champ manquant: {field}")
 
-            cursor = self.conn.cursor()
-            cursor.execute('''
-            INSERT INTO ibans 
-            (client_id, iban, currency, type, balance, bank_name, bank_code, 
-            bic, rib_key, account_number, branch_code)
-            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
-            ''', (
-                account_data['client_id'],
-                account_data['iban'],
-                account_data['currency'],
-                account_data['type'],
-                account_data.get('balance', 0),
-                account_data['bank_name'],
-                account_data['bank_code'],
-                account_data['bic'],
-                account_data['rib_key'],
-                account_data['account_number'],
-                account_data['branch_code']
-            ))
-            self.conn.commit()
-            return cursor.lastrowid
-        except mysql.connector.Error as e:
-            raise DatabaseError(f"Erreur MySQL: {str(e)}")
+            with self.conn:
+                cursor = self.conn.cursor()
+                cursor.execute('''
+                INSERT INTO ibans 
+                (client_id, iban, currency, type, balance, bank_name, bank_code, 
+                bic, rib_key, account_number, branch_code)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ''', (
+                    account_data['client_id'],
+                    account_data['iban'],
+                    account_data['currency'],
+                    account_data['type'],
+                    account_data.get('balance', 0),
+                    account_data['bank_name'],
+                    account_data['bank_code'],
+                    account_data['bic'],
+                    account_data['rib_key'],
+                    account_data['account_number'],
+                    account_data['branch_code']
+                ))
+                return cursor.lastrowid
+        except sqlite3.Error as e:
+            raise DatabaseError(f"Erreur SQLite: {str(e)}")
 
     def update_account(self, account_id, account_data):
         """Met à jour un compte existant"""
         query = """
         UPDATE accounts 
-        SET bank_name = %s, bank_code = %s, branch_code = %s, 
-            account_number = %s, rib_key = %s, iban = %s, 
-            bic = %s, type = %s, currency = %s, balance = %s, 
-            status = %s, updated_at = CURRENT_TIMESTAMP
-        WHERE id = %s
+        SET bank_name = ?, bank_code = ?, branch_code = ?, 
+            account_number = ?, rib_key = ?, iban = ?, 
+            bic = ?, type = ?, currency = ?, balance = ?, 
+            status = ?, updated_at = CURRENT_TIMESTAMP
+        WHERE id = ?
         """
         params = (
             account_data['bank_name'], account_data['bank_code'],
@@ -223,8 +214,7 @@ class BankDatabase:
             account_data['currency'], account_data['balance'],
             account_data['status'], account_id
         )
-        cursor = self.conn.cursor()
-        cursor.execute(query, params)
+        self.conn.execute(query, params)
         self.conn.commit()
 
     def search_accounts(self, client_query: str = None, iban_query: str = None,
@@ -240,7 +230,7 @@ class BankDatabase:
             List[Dict]: Liste des comptes correspondants
         """
         try:
-            cursor = self.conn.cursor(dictionary=True)
+            cursor = self.conn.cursor()
             
             # Construction dynamique de la requête SQL
             query = '''
@@ -265,7 +255,7 @@ class BankDatabase:
             # Filtre par nom/prénom client
             if client_query and client_query.strip():
                 query += '''
-                AND (c.first_name LIKE %s OR c.last_name LIKE %s)
+                AND (c.first_name LIKE ? OR c.last_name LIKE ?)
                 '''
                 search_term = f"%{client_query.strip()}%"
                 params.extend([search_term, search_term])
@@ -273,20 +263,20 @@ class BankDatabase:
             # Filtre par IBAN
             if iban_query and iban_query.strip():
                 query += '''
-                AND i.iban LIKE %s
+                AND i.iban LIKE ?
                 '''
                 params.append(f"%{iban_query.strip()}%")
             
             # Filtre par solde
             if min_balance is not None:
                 query += '''
-                AND i.balance >= %s
+                AND i.balance >= ?
                 '''
                 params.append(min_balance)
             
             if max_balance is not None:
                 query += '''
-                AND i.balance <= %s
+                AND i.balance <= ?
                 '''
                 params.append(max_balance)
             
@@ -305,7 +295,7 @@ class BankDatabase:
             
             return accounts
             
-        except mysql.connector.Error as e:
+        except sqlite3.Error as e:
             raise DatabaseError(f"Erreur lors de la recherche de comptes: {str(e)}")
         
     def generate_rib_receipt(self, iban: str, output_path: str = None) -> str:
@@ -466,95 +456,92 @@ class BankDatabase:
     def create_tables(self) -> None:
         """Crée toutes les tables nécessaires avec les colonnes requises"""
         try:
-            cursor = self.conn.cursor()
-            
-            # Table Clients
-            cursor.execute('''
-            CREATE TABLE IF NOT EXISTS clients (
-                id INT AUTO_INCREMENT PRIMARY KEY,
-                first_name VARCHAR(255) NOT NULL,
-                last_name VARCHAR(255) NOT NULL,
-                email VARCHAR(255) UNIQUE,
-                phone VARCHAR(50),
-                type ENUM('Particulier', 'Entreprise', 'VIP'),
-                status ENUM('Actif', 'Inactif', 'En attente'),
-                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-            )
-            ''')
-            
-            # Table IBAN avec toutes les colonnes nécessaires
-            cursor.execute('''
-            CREATE TABLE IF NOT EXISTS ibans (
-                id INT AUTO_INCREMENT PRIMARY KEY,
-                client_id INT NOT NULL,
-                iban VARCHAR(50) UNIQUE NOT NULL,
-                currency ENUM('EUR', 'USD', 'GBP', 'XAF'),
-                type ENUM('Courant', 'Épargne', 'Entreprise'),
-                balance DECIMAL(15,2) DEFAULT 0 CHECK (balance >= 0),
-                bank_name VARCHAR(255) NOT NULL,
-                bank_code VARCHAR(50) NOT NULL,
-                bic VARCHAR(20) NOT NULL,
-                rib_key VARCHAR(10) NOT NULL,
-                account_number VARCHAR(50) NOT NULL,
-                branch_code VARCHAR(50) NOT NULL,
-                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                FOREIGN KEY (client_id) REFERENCES clients (id) ON DELETE CASCADE
-            )
-            ''')
-            
-            # Table Transactions
-            cursor.execute('''
-            CREATE TABLE IF NOT EXISTS transactions (
-                id INT AUTO_INCREMENT PRIMARY KEY,
-                iban_id INT NOT NULL,
-                client_id INT NOT NULL,
-                type ENUM('Dépôt', 'Retrait', 'Virement', 'Prélèvement'),
-                amount DECIMAL(15,2) NOT NULL CHECK (amount > 0),
-                description TEXT,
-                date TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                FOREIGN KEY (iban_id) REFERENCES ibans (id),
-                FOREIGN KEY (client_id) REFERENCES clients (id)
-            )
-            ''')
+            with self.conn:
+                # Table Clients
+                self.conn.execute('''
+                CREATE TABLE IF NOT EXISTS clients (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    first_name TEXT NOT NULL,
+                    last_name TEXT NOT NULL,
+                    email TEXT UNIQUE,
+                    phone TEXT,
+                    type TEXT CHECK(type IN ('Particulier', 'Entreprise', 'VIP')),
+                    status TEXT CHECK(status IN ('Actif', 'Inactif', 'En attente')),
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                )
+                ''')
+                
+                # Table IBAN avec toutes les colonnes nécessaires
+                self.conn.execute('''
+                CREATE TABLE IF NOT EXISTS ibans (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    client_id INTEGER NOT NULL,
+                    iban TEXT UNIQUE NOT NULL,
+                    currency TEXT CHECK(currency IN ('EUR', 'USD', 'GBP', 'XAF')),
+                    type TEXT CHECK(type IN ('Courant', 'Épargne', 'Entreprise')),
+                    balance REAL DEFAULT 0 CHECK(balance >= 0),
+                    bank_name TEXT NOT NULL,
+                    bank_code TEXT NOT NULL,
+                    bic TEXT NOT NULL,
+                    rib_key TEXT NOT NULL,
+                    account_number TEXT NOT NULL,
+                    branch_code TEXT NOT NULL,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    FOREIGN KEY (client_id) REFERENCES clients (id) ON DELETE CASCADE
+                )
+                ''')
+                
+                # Table Transactions
+                self.conn.execute('''
+                CREATE TABLE IF NOT EXISTS transactions (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    iban_id INTEGER NOT NULL,
+                    client_id INTEGER NOT NULL,
+                    type TEXT CHECK(type IN ('Dépôt', 'Retrait', 'Virement', 'Prélèvement')),
+                    amount REAL NOT NULL CHECK(amount > 0),
+                    description TEXT,
+                    date TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    FOREIGN KEY (iban_id) REFERENCES ibans (id),
+                    FOREIGN KEY (client_id) REFERENCES clients (id)
+                )
+                ''')
 
-            # Table AVI
-            cursor.execute('''
-            CREATE TABLE IF NOT EXISTS avis (
-                id INT AUTO_INCREMENT PRIMARY KEY,
-                reference VARCHAR(50) UNIQUE NOT NULL,
-                nom_complet VARCHAR(255) NOT NULL,
-                code_banque VARCHAR(50) NOT NULL,
-                numero_compte VARCHAR(50) NOT NULL,
-                devise ENUM('XAF', 'EUR', 'USD') NOT NULL,
-                iban VARCHAR(50) NOT NULL,
-                bic VARCHAR(20) NOT NULL,
-                montant DECIMAL(15,2) NOT NULL,
-                date_creation DATE NOT NULL,
-                date_expiration DATE,
-                statut ENUM('Etudiant', 'Fonctionnaire') NOT NULL,
-                commentaires TEXT,
-                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-            )
-            ''')
-            
-            self.conn.commit()
-        except mysql.connector.Error as e:
+                # Table AVI
+                self.conn.execute('''
+                CREATE TABLE IF NOT EXISTS avis (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    reference TEXT UNIQUE NOT NULL DEFAULT ('AVI-' || strftime('%Y%m%d', 'now') || '-' || substr(abs(random()), 1, 4)),
+                    nom_complet TEXT NOT NULL,
+                    code_banque TEXT NOT NULL,
+                    numero_compte TEXT NOT NULL,
+                    devise TEXT NOT NULL CHECK(devise IN ('XAF', 'EUR', 'USD')),
+                    iban TEXT NOT NULL,
+                    bic TEXT NOT NULL,
+                    montant REAL NOT NULL,
+                    date_creation DATE NOT NULL,
+                    date_expiration DATE,
+                    statut TEXT NOT NULL CHECK(statut IN ('Etudiant', 'Fonctionnaire')),
+                    commentaires TEXT,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                )
+                ''')
+        except sqlite3.Error as e:
             raise DatabaseError(f"Erreur lors de la création des tables: {str(e)}")
         
     def get_avi_by_id(self, avi_id: int) -> Optional[Dict]:
         """Récupère une AVI par son ID"""
         try:
-            cursor = self.conn.cursor(dictionary=True)
-            cursor.execute('SELECT * FROM avis WHERE id=%s', (avi_id,))
+            cursor = self.conn.cursor()
+            cursor.execute('SELECT * FROM avis WHERE id=?', (avi_id,))
             avi = cursor.fetchone()
-            return avi
-        except mysql.connector.Error as e:
+            return dict(avi) if avi else None
+        except sqlite3.Error as e:
             raise DatabaseError(f"Erreur lors de la récupération de l'AVI: {str(e)}")
 
     def get_avi_by_reference(self, reference: str) -> Optional[Dict]:
         """Récupère une AVI par sa référence"""
         try:
-            cursor = self.conn.cursor(dictionary=True)
+            cursor = self.conn.cursor()
             cursor.execute('''
             SELECT 
                 a.*,
@@ -565,11 +552,12 @@ class BankDatabase:
                 i.rib_key
             FROM avis a
             LEFT JOIN ibans i ON a.iban = i.iban
-            WHERE a.reference = %s
+            WHERE a.reference = ?
             ''', (reference,))
             
-            return cursor.fetchone()
-        except mysql.connector.Error as e:
+            avi = cursor.fetchone()
+            return dict(avi) if avi else None
+        except sqlite3.Error as e:
             raise DatabaseError(f"Erreur lors de la récupération de l'AVI par référence: {str(e)}")
 
     def get_all_avis(self, with_details: bool = False) -> List[Dict]:
@@ -581,7 +569,7 @@ class BankDatabase:
             Liste des AVI sous forme de dictionnaires
         """
         try:
-            cursor = self.conn.cursor(dictionary=True)
+            cursor = self.conn.cursor()
             
             if with_details:
                 cursor.execute('''
@@ -599,9 +587,9 @@ class BankDatabase:
             else:
                 cursor.execute('SELECT * FROM avis ORDER BY date_creation DESC')
                 
-            return cursor.fetchall()
+            return [dict(row) for row in cursor.fetchall()]
             
-        except mysql.connector.Error as e:
+        except sqlite3.Error as e:
             raise DatabaseError(f"Erreur lors de la récupération des AVI: {str(e)}")
 
     def update_avi(self, reference: str, updated_data: Dict) -> bool:
@@ -617,22 +605,22 @@ class BankDatabase:
             if not update_fields:
                 raise ValueError("Aucun champ valide à mettre à jour")
             
-            cursor = self.conn.cursor()
-            
-            set_clause = ', '.join([f"{field}=%s" for field in update_fields])
-            values = list(update_fields.values())
-            values.append(reference)
-            
-            cursor.execute(f'''
-            UPDATE avis
-            SET {set_clause}
-            WHERE reference=%s
-            ''', values)
-            
-            self.conn.commit()
-            return cursor.rowcount > 0
+            with self.conn:
+                cursor = self.conn.cursor()
                 
-        except mysql.connector.Error as e:
+                set_clause = ', '.join([f"{field}=?" for field in update_fields])
+                values = list(update_fields.values())
+                values.append(reference)
+                
+                cursor.execute(f'''
+                UPDATE avis
+                SET {set_clause}
+                WHERE reference=?
+                ''', values)
+                
+                return cursor.rowcount > 0
+                
+        except sqlite3.Error as e:
             raise DatabaseError(f"Erreur lors de la mise à jour de l'AVI: {str(e)}")
 
     def add_avi(self, avi_data: Dict) -> int:
@@ -650,34 +638,34 @@ class BankDatabase:
             # Générer une référence unique
             reference = f"AVI-{datetime.now().strftime('%Y%m%d')}-{random.randint(1000, 9999)}"
             
-            cursor = self.conn.cursor()
-            cursor.execute('''
-            INSERT INTO avis (
-                reference, nom_complet, code_banque, numero_compte, devise,
-                iban, bic, montant, date_creation, date_expiration,
-                statut, commentaires
-            )
-            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
-            ''', (
-                reference,
-                avi_data['nom_complet'],
-                avi_data['code_banque'],
-                avi_data['numero_compte'],
-                avi_data['devise'],
-                avi_data['iban'],
-                avi_data['bic'],
-                avi_data['montant'],
-                avi_data['date_creation'],
-                avi_data.get('date_expiration'),
-                avi_data['statut'],
-                avi_data.get('commentaires')
-            ))
-            self.conn.commit()
-            return cursor.lastrowid
-        except mysql.connector.IntegrityError as e:
+            with self.conn:
+                cursor = self.conn.cursor()
+                cursor.execute('''
+                INSERT INTO avis (
+                    reference, nom_complet, code_banque, numero_compte, devise,
+                    iban, bic, montant, date_creation, date_expiration,
+                    statut, commentaires
+                )
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ''', (
+                    reference,
+                    avi_data['nom_complet'],
+                    avi_data['code_banque'],
+                    avi_data['numero_compte'],
+                    avi_data['devise'],
+                    avi_data['iban'],
+                    avi_data['bic'],
+                    avi_data['montant'],
+                    avi_data['date_creation'],
+                    avi_data.get('date_expiration'),
+                    avi_data['statut'],
+                    avi_data.get('commentaires')
+                ))
+                return cursor.lastrowid
+        except sqlite3.IntegrityError as e:
             raise IntegrityError(f"Erreur d'intégrité lors de l'ajout de l'AVI: {str(e)}")
-        except mysql.connector.Error as e:
-            raise DatabaseError(f"Erreur MySQL lors de l'ajout de l'AVI: {str(e)}")
+        except sqlite3.Error as e:
+            raise DatabaseError(f"Erreur SQLite lors de l'ajout de l'AVI: {str(e)}")
 
     def search_avis(self, search_term: str = None, statut: str = None) -> List[Dict]:
         """
@@ -689,31 +677,31 @@ class BankDatabase:
             Liste des AVI correspondantes sous forme de dictionnaires
         """
         try:
-            cursor = self.conn.cursor(dictionary=True)
+            cursor = self.conn.cursor()
             query = 'SELECT * FROM avis WHERE 1=1'
             params = []
             
             if search_term:
                 query += '''
-                AND (reference LIKE %s OR 
-                    nom_complet LIKE %s OR 
-                    iban LIKE %s OR 
-                    code_banque LIKE %s OR 
-                    numero_compte LIKE %s)
+                AND (reference LIKE ? OR 
+                    nom_complet LIKE ? OR 
+                    iban LIKE ? OR 
+                    code_banque LIKE ? OR 
+                    numero_compte LIKE ?)
                 '''
                 search_param = f"%{search_term}%"
                 params.extend([search_param]*5)
                 
             if statut:
-                query += ' AND statut = %s'
+                query += ' AND statut = ?'
                 params.append(statut)
                 
             query += ' ORDER BY date_creation DESC'
             
             cursor.execute(query, params)
-            return cursor.fetchall()
+            return [dict(row) for row in cursor.fetchall()]
             
-        except mysql.connector.Error as e:
+        except sqlite3.Error as e:
             raise DatabaseError(f"Erreur lors de la recherche d'AVI: {str(e)}")
 
 
@@ -722,53 +710,57 @@ class BankDatabase:
                   client_type: str, status: str) -> int:
         """Ajoute un nouveau client et retourne son ID"""
         try:
-            cursor = self.conn.cursor()
-            cursor.execute('''
-            INSERT INTO clients (first_name, last_name, email, phone, type, status)
-            VALUES (%s, %s, %s, %s, %s, %s)
-            ''', (first_name, last_name, email, phone, client_type, status))
-            self.conn.commit()
-            return cursor.lastrowid
-        except mysql.connector.IntegrityError as e:
+            with self.conn:
+                cursor = self.conn.cursor()
+                cursor.execute('''
+                INSERT INTO clients (first_name, last_name, email, phone, type, status)
+                VALUES (?, ?, ?, ?, ?, ?)
+                ''', (first_name, last_name, email, phone, client_type, status))
+                return cursor.lastrowid
+        except sqlite3.IntegrityError as e:
             raise IntegrityError(f"Email déjà existant: {str(e)}")
-        except mysql.connector.Error as e:
+        except sqlite3.Error as e:
             raise DatabaseError(f"Erreur lors de l'ajout du client: {str(e)}")
 
     def update_client(self, client_id: int, first_name: str, last_name: str, email: str, 
                      phone: str, client_type: str, status: str) -> None:
         """Met à jour les informations d'un client"""
         try:
-            cursor = self.conn.cursor()
-            cursor.execute('''
-            UPDATE clients 
-            SET first_name=%s, last_name=%s, email=%s, phone=%s, type=%s, status=%s
-            WHERE id=%s
-            ''', (first_name, last_name, email, phone, client_type, status, client_id))
-            
-            self.conn.commit()
-            if cursor.rowcount == 0:
-                raise NotFoundError(f"Client avec ID {client_id} non trouvé")
-        except mysql.connector.IntegrityError as e:
+            with self.conn:
+                cursor = self.conn.cursor()
+                cursor.execute('''
+                UPDATE clients 
+                SET first_name=?, last_name=?, email=?, phone=?, type=?, status=?
+                WHERE id=?
+                ''', (first_name, last_name, email, phone, client_type, status, client_id))
+                
+                if cursor.rowcount == 0:
+                    raise NotFoundError(f"Client avec ID {client_id} non trouvé")
+        except sqlite3.IntegrityError as e:
             raise IntegrityError(f"Email déjà existant: {str(e)}")
-        except mysql.connector.Error as e:
+        except sqlite3.Error as e:
             raise DatabaseError(f"Erreur lors de la mise à jour du client: {str(e)}")
 
     def get_client_by_id(self, client_id: int) -> Optional[Dict]:
         """Récupère un client par son ID"""
         try:
-            cursor = self.conn.cursor(dictionary=True)
-            cursor.execute('SELECT * FROM clients WHERE id=%s', (client_id,))
-            return cursor.fetchone()
-        except mysql.connector.Error as e:
+            cursor = self.conn.cursor()
+            cursor.execute('SELECT * FROM clients WHERE id=?', (client_id,))
+            client = cursor.fetchone()
+            
+            if client:
+                return dict(client)
+            return None
+        except sqlite3.Error as e:
             raise DatabaseError(f"Erreur lors de la récupération du client: {str(e)}")
 
     def get_all_clients(self) -> List[Dict]:
         """Récupère tous les clients triés par nom"""
         try:
-            cursor = self.conn.cursor(dictionary=True)
+            cursor = self.conn.cursor()
             cursor.execute('SELECT * FROM clients ORDER BY last_name, first_name')
-            return cursor.fetchall()
-        except mysql.connector.Error as e:
+            return [dict(row) for row in cursor.fetchall()]
+        except sqlite3.Error as e:
             raise DatabaseError(f"Erreur lors de la récupération des clients: {str(e)}")
 
     def count_active_clients(self) -> int:
@@ -777,7 +769,7 @@ class BankDatabase:
             cursor = self.conn.cursor()
             cursor.execute('SELECT COUNT(*) FROM clients WHERE status="Actif"')
             return cursor.fetchone()[0]
-        except mysql.connector.Error as e:
+        except sqlite3.Error as e:
             raise DatabaseError(f"Erreur lors du comptage des clients actifs: {str(e)}")
 
     def get_clients_by_type(self) -> List[tuple]:
@@ -786,7 +778,7 @@ class BankDatabase:
             cursor = self.conn.cursor()
             cursor.execute('SELECT type, COUNT(*) as count FROM clients GROUP BY type')
             return cursor.fetchall()
-        except mysql.connector.Error as e:
+        except sqlite3.Error as e:
             raise DatabaseError(f"Erreur lors de la récupération des clients par type: {str(e)}")
 
     # ===== Méthodes pour les IBAN =====
@@ -794,44 +786,45 @@ class BankDatabase:
                 account_type: str, balance: float = 0) -> int:
         """Ajoute un nouveau compte IBAN et retourne son ID"""
         try:
-            cursor = self.conn.cursor()
-            # Vérifie que le client existe
-            if not self.get_client_by_id(client_id):
-                raise NotFoundError(f"Client avec ID {client_id} non trouvé")
-            
-            cursor.execute('''
-            INSERT INTO ibans (client_id, iban, currency, type, balance)
-            VALUES (%s, %s, %s, %s, %s)
-            ''', (client_id, iban, currency, account_type, balance))
-            self.conn.commit()
-            return cursor.lastrowid
-        except mysql.connector.IntegrityError as e:
+            with self.conn:
+                cursor = self.conn.cursor()
+                # Vérifie que le client existe
+                if not self.get_client_by_id(client_id):
+                    raise NotFoundError(f"Client avec ID {client_id} non trouvé")
+                
+                cursor.execute('''
+                INSERT INTO ibans (client_id, iban, currency, type, balance)
+                VALUES (?, ?, ?, ?, ?)
+                ''', (client_id, iban, currency, account_type, balance))
+                return cursor.lastrowid
+        except sqlite3.IntegrityError as e:
             raise IntegrityError(f"IBAN déjà existant: {str(e)}")
-        except mysql.connector.Error as e:
+        except sqlite3.Error as e:
             raise DatabaseError(f"Erreur lors de l'ajout de l'IBAN: {str(e)}")
 
     def get_iban_by_id(self, iban_id: int) -> Optional[Dict]:
         """Récupère un compte IBAN par son ID"""
         try:
-            cursor = self.conn.cursor(dictionary=True)
-            cursor.execute('SELECT * FROM ibans WHERE id=%s', (iban_id,))
-            return cursor.fetchone()
-        except mysql.connector.Error as e:
+            cursor = self.conn.cursor()
+            cursor.execute('SELECT * FROM ibans WHERE id=?', (iban_id,))
+            iban = cursor.fetchone()
+            return dict(iban) if iban else None
+        except sqlite3.Error as e:
             raise DatabaseError(f"Erreur lors de la récupération de l'IBAN: {str(e)}")
 
     def get_ibans_by_client(self, client_id: int) -> List[Dict]:
         """Récupère tous les IBAN d'un client"""
         try:
-            cursor = self.conn.cursor(dictionary=True)
-            cursor.execute('SELECT * FROM ibans WHERE client_id=%s', (client_id,))
-            return cursor.fetchall()
-        except mysql.connector.Error as e:
+            cursor = self.conn.cursor()
+            cursor.execute('SELECT * FROM ibans WHERE client_id=?', (client_id,))
+            return [dict(row) for row in cursor.fetchall()]
+        except sqlite3.Error as e:
             raise DatabaseError(f"Erreur lors de la récupération des IBANs: {str(e)}")
 
     def get_account_by_iban(self, iban: str) -> Optional[Dict]:
         """Récupère les détails complets d'un compte par son IBAN"""
         try:
-            cursor = self.conn.cursor(dictionary=True)
+            cursor = self.conn.cursor()
             cursor.execute('''
             SELECT 
                 i.*, 
@@ -842,25 +835,26 @@ class BankDatabase:
                 c.type as client_type
             FROM ibans i
             JOIN clients c ON i.client_id = c.id
-            WHERE i.iban = %s
+            WHERE i.iban = ?
             ''', (iban,))
             
-            return cursor.fetchone()
+            account = cursor.fetchone()
+            return dict(account) if account else None
             
-        except mysql.connector.Error as e:
+        except sqlite3.Error as e:
             raise DatabaseError(f"Erreur lors de la récupération du compte par IBAN: {str(e)}")
 
     def get_all_ibans(self) -> List[Dict]:
         """Récupère tous les IBAN avec les infos clients"""
         try:
-            cursor = self.conn.cursor(dictionary=True)
+            cursor = self.conn.cursor()
             cursor.execute('''
             SELECT i.*, c.first_name, c.last_name 
             FROM ibans i
             JOIN clients c ON i.client_id = c.id
             ''')
-            return cursor.fetchall()
-        except mysql.connector.Error as e:
+            return [dict(row) for row in cursor.fetchall()]
+        except sqlite3.Error as e:
             raise DatabaseError(f"Erreur lors de la récupération des IBANs: {str(e)}")
 
     # ===== Méthodes pour les transactions =====
@@ -870,10 +864,10 @@ class BankDatabase:
         if amount <= 0:
             raise ValueError("Le montant doit être positif")
             
-        cursor = self.conn.cursor(dictionary=True)
+        cursor = self.conn.cursor()
         
         # Récupère le client_id et vérifie le solde pour les retraits
-        cursor.execute('SELECT client_id, balance FROM ibans WHERE id=%s', (iban_id,))
+        cursor.execute('SELECT client_id, balance FROM ibans WHERE id=?', (iban_id,))
         result = cursor.fetchone()
         
         if not result:
@@ -887,52 +881,51 @@ class BankDatabase:
         # Ajoute la transaction
         cursor.execute('''
         INSERT INTO transactions (iban_id, client_id, type, amount, description)
-        VALUES (%s, %s, %s, %s, %s)
+        VALUES (?, ?, ?, ?, ?)
         ''', (iban_id, client_id, transaction_type, amount, description))
         
         # Met à jour le solde
         if transaction_type == 'Dépôt':
-            cursor.execute('UPDATE ibans SET balance = balance + %s WHERE id=%s', (amount, iban_id))
+            cursor.execute('UPDATE ibans SET balance = balance + ? WHERE id=?', (amount, iban_id))
         else:
-            cursor.execute('UPDATE ibans SET balance = balance - %s WHERE id=%s', (amount, iban_id))
+            cursor.execute('UPDATE ibans SET balance = balance - ? WHERE id=?', (amount, iban_id))
 
     def deposit(self, iban_id: int, amount: float, description: str = "") -> None:
         """Effectue un dépôt sur un compte"""
         try:
-            cursor = self.conn.cursor()
-            self._execute_transaction(iban_id, amount, 'Dépôt', description)
-            self.conn.commit()
-        except mysql.connector.Error as e:
+            with self.conn:
+                self._execute_transaction(iban_id, amount, 'Dépôt', description)
+        except sqlite3.Error as e:
             raise DatabaseError(f"Erreur lors du dépôt: {str(e)}")
 
     def withdraw(self, iban_id: int, amount: float, description: str = "") -> None:
         """Effectue un retrait sur un compte"""
         try:
-            cursor = self.conn.cursor()
-            self._execute_transaction(iban_id, amount, 'Retrait', description)
-            self.conn.commit()
-        except mysql.connector.Error as e:
+            with self.conn:
+                self._execute_transaction(iban_id, amount, 'Retrait', description)
+        except sqlite3.Error as e:
             raise DatabaseError(f"Erreur lors du retrait: {str(e)}")
 
     def get_transaction_by_id(self, transaction_id: int) -> Optional[Dict]:
         """Récupère une transaction par son ID"""
         try:
-            cursor = self.conn.cursor(dictionary=True)
+            cursor = self.conn.cursor()
             cursor.execute('''
             SELECT t.*, i.iban, c.first_name, c.last_name
             FROM transactions t
             JOIN ibans i ON t.iban_id = i.id
             JOIN clients c ON t.client_id = c.id
-            WHERE t.id=%s
+            WHERE t.id=?
             ''', (transaction_id,))
-            return cursor.fetchone()
-        except mysql.connector.Error as e:
+            transaction = cursor.fetchone()
+            return dict(transaction) if transaction else None
+        except sqlite3.Error as e:
             raise DatabaseError(f"Erreur lors de la récupération de la transaction: {str(e)}")
 
     def get_all_transactions(self) -> List[Dict]:
         """Récupère toutes les transactions"""
         try:
-            cursor = self.conn.cursor(dictionary=True)
+            cursor = self.conn.cursor()
             cursor.execute('''
             SELECT t.*, i.iban, c.first_name, c.last_name
             FROM transactions t
@@ -940,24 +933,24 @@ class BankDatabase:
             JOIN clients c ON t.client_id = c.id
             ORDER BY t.date DESC
             ''')
-            return cursor.fetchall()
-        except mysql.connector.Error as e:
+            return [dict(row) for row in cursor.fetchall()]
+        except sqlite3.Error as e:
             raise DatabaseError(f"Erreur lors de la récupération des transactions: {str(e)}")
 
     def get_recent_transactions(self, limit: int = 5) -> List[Dict]:
         """Récupère les transactions récentes"""
         try:
-            cursor = self.conn.cursor(dictionary=True)
+            cursor = self.conn.cursor()
             cursor.execute('''
             SELECT t.*, i.iban, c.first_name, c.last_name
             FROM transactions t
             JOIN ibans i ON t.iban_id = i.id
             JOIN clients c ON t.client_id = c.id
             ORDER BY t.date DESC
-            LIMIT %s
+            LIMIT ?
             ''', (limit,))
-            return cursor.fetchall()
-        except mysql.connector.Error as e:
+            return [dict(row) for row in cursor.fetchall()]
+        except sqlite3.Error as e:
             raise DatabaseError(f"Erreur lors de la récupération des transactions récentes: {str(e)}")
 
     def count_daily_transactions(self) -> int:
@@ -965,9 +958,9 @@ class BankDatabase:
         try:
             cursor = self.conn.cursor()
             today = datetime.now().strftime('%Y-%m-%d')
-            cursor.execute('SELECT COUNT(*) FROM transactions WHERE DATE(date) = DATE(%s)', (today,))
+            cursor.execute('SELECT COUNT(*) FROM transactions WHERE date(date) = date(?)', (today,))
             return cursor.fetchone()[0]
-        except mysql.connector.Error as e:
+        except sqlite3.Error as e:
             raise DatabaseError(f"Erreur lors du comptage des transactions journalières: {str(e)}")
 
     def get_last_week_transactions(self) -> Dict[str, List]:
@@ -989,7 +982,7 @@ class BankDatabase:
                 cursor.execute('''
                 SELECT COALESCE(SUM(amount), 0)
                 FROM transactions
-                WHERE type='Dépôt' AND DATE(date) = DATE(%s)
+                WHERE type='Dépôt' AND date(date) = date(?)
                 ''', (date_str,))
                 deposit = cursor.fetchone()[0]
                 
@@ -997,7 +990,7 @@ class BankDatabase:
                 cursor.execute('''
                 SELECT COALESCE(SUM(amount), 0)
                 FROM transactions
-                WHERE type='Retrait' AND DATE(date) = DATE(%s)
+                WHERE type='Retrait' AND date(date) = date(?)
                 ''', (date_str,))
                 withdrawal = cursor.fetchone()[0]
                 
@@ -1012,7 +1005,7 @@ class BankDatabase:
                 'deposit': deposits,
                 'withdrawal': withdrawals
             }
-        except mysql.connector.Error as e:
+        except sqlite3.Error as e:
             raise DatabaseError(f"Erreur lors de la récupération des stats hebdomadaires: {str(e)}")
 
     def total_deposits(self) -> float:
@@ -1021,7 +1014,7 @@ class BankDatabase:
             cursor = self.conn.cursor()
             cursor.execute('SELECT COALESCE(SUM(amount), 0) FROM transactions WHERE type="Dépôt"')
             return cursor.fetchone()[0]
-        except mysql.connector.Error as e:
+        except sqlite3.Error as e:
             raise DatabaseError(f"Erreur lors du calcul des dépôts totaux: {str(e)}")
 
     def total_withdrawals(self) -> float:
@@ -1030,14 +1023,14 @@ class BankDatabase:
             cursor = self.conn.cursor()
             cursor.execute('SELECT COALESCE(SUM(amount), 0) FROM transactions WHERE type="Retrait"')
             return cursor.fetchone()[0]
-        except mysql.connector.Error as e:
+        except sqlite3.Error as e:
             raise DatabaseError(f"Erreur lors du calcul des retraits totaux: {str(e)}")
 
     def close(self) -> None:
         """Ferme la connexion à la base de données"""
         try:
             self.conn.close()
-        except mysql.connector.Error as e:
+        except sqlite3.Error as e:
             raise DatabaseError(f"Erreur lors de la fermeture de la connexion: {str(e)}")
 
     def __enter__(self):

@@ -1,5 +1,5 @@
 """
-Application de Gestion Administrateur avec Streamlit (version MySQL)
+Application de Gestion Administrateur avec Streamlit
 
 Structure:
 1. Imports et configuration
@@ -19,51 +19,46 @@ import PyPDF2
 from PIL import Image, ImageFilter
 from docx import Document
 from fpdf import FPDF
-import mysql.connector
 import pdfplumber
 import qrcode
 import streamlit as st
 from datetime import datetime
 import pandas as pd
+import sqlite3
 import hashlib
 import time
 from typing import List, Dict, Optional
+from sqlite3 import DatabaseError
 import streamlit as st
 from streamlit_option_menu import option_menu
+import pandas as pd
 import plotly.express as px
 from database import BankDatabase
 from receipt_generator import generate_receipt_pdf
 from faker import Faker
+import time
 import base64
 import os
 from datetime import datetime, timedelta
+from PIL import Image
+import PyPDF2
 from reportlab.pdfgen import canvas
 from reportlab.lib.pagesizes import letter
 from reportlab.lib.utils import ImageReader
+import base64
+import qrcode
+from io import BytesIO
+import os
+import PyPDF2
+from reportlab.pdfgen import canvas
+from reportlab.lib.pagesizes import letter
+import base64
+import qrcode
+from io import BytesIO
 from streamlit.components.v1 import html
-import extra_streamlit_components as stx
-from streamlit.components.v1 import html
-# from streamlit_extras.notification_box import notification
-from streamlit_extras.let_it_rain import rain
-from streamlit_extras.stylable_container import stylable_container
-from streamlit_extras.switch_page_button import switch_page
-from streamlit_extras.colored_header import colored_header
-from streamlit_extras.add_vertical_space import add_vertical_space
-from streamlit_extras.dataframe_explorer import dataframe_explorer
-from streamlit_extras.metric_cards import style_metric_cards
-from streamlit_extras.toggle_switch import st_toggle_switch
-import bcrypt
-import secrets
-import string
 
-# Configuration MySQL
-MYSQL_CONFIG = {
-    'host': 'db-mav-1.cdeaqqe46t76.eu-north-1.rds.amazonaws.com',
-    'user': 'admin',
-    'password': 'Frz5E1LTv49J7xF6MQleP0hgrYrCO3ybyHpJujA',
-    'database': 'ecocapital',
-    'port': 3306,
-}
+# Modifiez cette ligne
+DATABASE_NAME = os.path.abspath("bank_database.db")  # Chemin absolu
 
 # Configuration du logging
 logging.basicConfig(
@@ -73,235 +68,116 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 # =============================================
-# STYLE ET THÈME PERSONNALISÉ
-# =============================================
-def set_custom_theme():
-    st.markdown(f"""
-    <style>
-        /* Couleurs principales */
-        :root {{
-            --primary: #3498db;
-            --secondary: #2ecc71;
-            --accent: #e74c3c;
-            --dark: #2c3e50;
-            --light: #ecf0f1;
-            --background: #f9f9f9;
-        }}
-        
-        /* Style général */
-        .stApp {{
-            background-color: var(--background);
-            color: var(--dark);
-        }}
-        
-        /* En-têtes */
-        h1, h2, h3, h4, h5, h6 {{
-            color: var(--dark) !important;
-            border-bottom: 2px solid var(--primary);
-            padding-bottom: 0.3em;
-        }}
-        
-        /* Sidebar */
-        [data-testid="stSidebar"] {{
-            background: linear-gradient(135deg, var(--dark), #34495e) !important;
-            color: white !important;
-        }}
-        
-        /* Boutons */
-        .stButton>button {{
-            background-color: var(--primary) !important;
-            color: white !important;
-            border-radius: 8px !important;
-            transition: all 0.3s ease !important;
-            border: none !important;
-        }}
-        
-        .stButton>button:hover {{
-            background-color: #2980b9 !important;
-            transform: translateY(-2px) !important;
-            box-shadow: 0 4px 8px rgba(0,0,0,0.1) !important;
-        }}
-        
-        /* Cartes */
-        .card {{
-            background: white;
-            border-radius: 10px;
-            box-shadow: 0 4px 8px rgba(0,0,0,0.1);
-            padding: 1.5em;
-            margin-bottom: 1em;
-            transition: all 0.3s ease;
-        }}
-        
-        .card:hover {{
-            transform: translateY(-5px);
-            box-shadow: 0 6px 12px rgba(0,0,0,0.15);
-        }}
-        
-        /* Tableaux */
-        .stDataFrame {{
-            border-radius: 10px !important;
-            box-shadow: 0 2px 4px rgba(0,0,0,0.05) !important;
-        }}
-        
-        /* Onglets */
-        .stTabs [role="tablist"] {{
-            background: transparent !important;
-        }}
-        
-        .stTabs [role="tab"] {{
-            color: var(--dark) !important;
-            border-radius: 8px 8px 0 0 !important;
-            transition: all 0.3s ease !important;
-        }}
-        
-        .stTabs [role="tab"][aria-selected="true"] {{
-            background: var(--primary) !important;
-            color: white !important;
-        }}
-        
-        /* Animation pour les notifications */
-        @keyframes fadeIn {{
-            from {{ opacity: 0; transform: translateY(20px); }}
-            to {{ opacity: 1; transform: translateY(0); }}
-        }}
-        
-        .notification {{
-            animation: fadeIn 0.5s ease-out;
-        }}
-        
-        /* Effet de chargement */
-        @keyframes pulse {{
-            0% {{ opacity: 0.6; }}
-            50% {{ opacity: 1; }}
-            100% {{ opacity: 0.6; }}
-        }}
-        
-        .stSpinner>div>div {{
-            background-color: var(--primary) !important;
-            animation: pulse 1.5s infinite ease-in-out;
-        }}
-    </style>
-    """, unsafe_allow_html=True)
-
-# =============================================
 # 2. CLASSES DE GESTION DE BASE DE DONNÉES
 # =============================================
 
 class EnhancedUserManager:
     """Gestionnaire complet des utilisateurs et de l'administration"""
     
-    def __init__(self, conn: mysql.connector.MySQLConnection):
+    def __init__(self, conn: sqlite3.Connection):
         """Initialise la connexion et crée les tables"""
         self.conn = conn
         self._create_tables()
 
     def _create_tables(self):
         """Crée les tables nécessaires dans la base de données"""
-        with self.conn.cursor() as cursor:
-            try:
-                # Table des utilisateurs
-                cursor.execute('''
-                CREATE TABLE IF NOT EXISTS users (
-                    id INT AUTO_INCREMENT PRIMARY KEY,
-                    username VARCHAR(255) UNIQUE NOT NULL,
-                    email VARCHAR(255) UNIQUE NOT NULL,
-                    password_hash VARCHAR(255) NOT NULL,
-                    role VARCHAR(50) DEFAULT 'user',
-                    status VARCHAR(50) DEFAULT 'active',
-                    last_login TIMESTAMP NULL,
-                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-                    CONSTRAINT chk_role CHECK (role IN ('user', 'manager', 'admin')),
-                    CONSTRAINT chk_status CHECK (status IN ('active', 'inactive', 'suspended'))
-                )''')
+        with self.conn:
+            # Table des utilisateurs
+            self.conn.execute('''
+            CREATE TABLE IF NOT EXISTS users (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                username TEXT UNIQUE NOT NULL,
+                email TEXT UNIQUE NOT NULL,
+                password_hash TEXT NOT NULL,
+                role TEXT DEFAULT 'user',
+                status TEXT DEFAULT 'active',
+                last_login TIMESTAMP,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                CHECK (role IN ('user', 'manager', 'admin')),
+                CHECK (status IN ('active', 'inactive', 'suspended'))
+            )''')
 
-                # Table des demandes admin
-                cursor.execute('''
-                CREATE TABLE IF NOT EXISTS admin_requests (
-                    id INT AUTO_INCREMENT PRIMARY KEY,
-                    username VARCHAR(255) UNIQUE NOT NULL,
-                    email VARCHAR(255) UNIQUE NOT NULL,
-                    password_hash VARCHAR(255) NOT NULL,
-                    justification TEXT,
-                    request_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                    status VARCHAR(50) DEFAULT 'pending',
-                    approved_by INT,
-                    FOREIGN KEY (approved_by) REFERENCES users (id)
-                )''')
+            # Table des demandes admin
+            self.conn.execute('''
+            CREATE TABLE IF NOT EXISTS admin_requests (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                username TEXT UNIQUE NOT NULL,
+                email TEXT UNIQUE NOT NULL,
+                password_hash TEXT NOT NULL,
+                justification TEXT,
+                request_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                status TEXT DEFAULT 'pending',
+                approved_by INTEGER,
+                FOREIGN KEY (approved_by) REFERENCES users (id)
+            )''')
 
-                # Table des logs d'activité
-                cursor.execute('''
-                CREATE TABLE IF NOT EXISTS activity_logs (
-                    id INT AUTO_INCREMENT PRIMARY KEY,
-                    user_id INT NOT NULL,
-                    action VARCHAR(255) NOT NULL,
-                    details TEXT,
-                    ip_address VARCHAR(50),
-                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                    FOREIGN KEY (user_id) REFERENCES users (id)
-                )''')
-                
-                self.conn.commit()
-            except mysql.connector.Error as err:
-                logger.error(f"Erreur lors de la création des tables: {err}")
-                raise
+            # Table des logs d'activité
+            self.conn.execute('''
+            CREATE TABLE IF NOT EXISTS activity_logs (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id INTEGER NOT NULL,
+                action TEXT NOT NULL,
+                details TEXT,
+                ip_address TEXT,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (user_id) REFERENCES users (id)
+            )''')
 
     # Méthodes de gestion des utilisateurs
     def add_user(self, username: str, email: str, password_hash: str, role: str = 'user') -> int:
         """Ajoute un nouvel utilisateur à la base de données"""
         try:
-            with self.conn.cursor() as cursor:
+            with self.conn:
+                cursor = self.conn.cursor()
                 cursor.execute('''
                 INSERT INTO users (username, email, password_hash, role)
-                VALUES (%s, %s, %s, %s)
+                VALUES (?, ?, ?, ?)
                 ''', (username, email, password_hash, role))
-                self.conn.commit()
                 return cursor.lastrowid
-        except mysql.connector.Error as e:
-            raise mysql.connector.Error(f"Erreur MySQL: {str(e)}")
+        except sqlite3.IntegrityError as e:
+            raise sqlite3.IntegrityError(f"Erreur d'intégrité: {str(e)}")
 
     def get_user_by_username(self, username: str) -> Optional[Dict]:
         """Récupère un utilisateur par son nom d'utilisateur"""
-        with self.conn.cursor(dictionary=True) as cursor:
-            cursor.execute('SELECT * FROM users WHERE username=%s', (username,))
-            return cursor.fetchone()
+        cursor = self.conn.cursor()
+        cursor.execute('SELECT * FROM users WHERE username=?', (username,))
+        user = cursor.fetchone()
+        return dict(user) if user else None
     
     def get_all_users(self) -> List[Dict]:
         """Récupère tous les utilisateurs"""
-        with self.conn.cursor(dictionary=True) as cursor:
-            cursor.execute('SELECT * FROM users ORDER BY username')
-            return cursor.fetchall()
+        cursor = self.conn.cursor()
+        cursor.execute('SELECT * FROM users ORDER BY username')
+        return [dict(row) for row in cursor.fetchall()]
 
     def update_user_role(self, user_id: int, new_role: str) -> None:
         """Met à jour le rôle d'un utilisateur"""
-        with self.conn.cursor() as cursor:
-            cursor.execute(
-                'UPDATE users SET role=%s, updated_at=CURRENT_TIMESTAMP WHERE id=%s',
+        with self.conn:
+            self.conn.execute(
+                'UPDATE users SET role=?, updated_at=CURRENT_TIMESTAMP WHERE id=?',
                 (new_role, user_id))
-            self.conn.commit()
 
     def update_user_status(self, user_id: int, new_status: str) -> None:
         """Met à jour le statut d'un utilisateur"""
-        with self.conn.cursor() as cursor:
-            cursor.execute(
-                'UPDATE users SET status=%s, updated_at=CURRENT_TIMESTAMP WHERE id=%s',
+        with self.conn:
+            self.conn.execute(
+                'UPDATE users SET status=?, updated_at=CURRENT_TIMESTAMP WHERE id=?',
                 (new_status, user_id))
-            self.conn.commit()
 
     def count_active_users(self) -> int:
         """Compte les utilisateurs actifs"""
-        with self.conn.cursor() as cursor:
-            cursor.execute('SELECT COUNT(*) FROM users WHERE status="active"')
-            return cursor.fetchone()[0]
+        cursor = self.conn.cursor()
+        cursor.execute('SELECT COUNT(*) FROM users WHERE status="active"')
+        return cursor.fetchone()[0]
 
     def log_activity(self, user_id: int, action: str, details: str = "", ip_address: str = "") -> None:
         """Enregistre une activité utilisateur"""
-        with self.conn.cursor() as cursor:
-            cursor.execute('''
+        with self.conn:
+            self.conn.execute('''
             INSERT INTO activity_logs (user_id, action, details, ip_address)
-            VALUES (%s, %s, %s, %s)
+            VALUES (?, ?, ?, ?)
             ''', (user_id, action, details, ip_address))
-            self.conn.commit()
 
     def get_activity_logs(self, date_filter: str = None, user_id: int = None) -> List[Dict]:
         """Récupère les logs d'activité avec filtres"""
@@ -314,80 +190,120 @@ class EnhancedUserManager:
         params = []
         
         if date_filter:
-            query += ' AND DATE(l.created_at) = DATE(%s)'
+            query += ' AND date(l.created_at) = date(?)'
             params.append(date_filter)
         
         if user_id:
-            query += ' AND l.user_id = %s'
+            query += ' AND l.user_id = ?'
             params.append(user_id)
         
         query += ' ORDER BY l.created_at DESC'
         
-        with self.conn.cursor(dictionary=True) as cursor:
-            cursor.execute(query, params)
-            return cursor.fetchall()
+        cursor = self.conn.cursor()
+        cursor.execute(query, params)
+        return [dict(row) for row in cursor.fetchall()]
 
     # Méthodes de gestion des comptes admin
     def create_admin_account(self, username: str, email: str, password: str, justification: str = "") -> bool:
         """Crée un compte administrateur immédiatement"""
         try:
-            with self.conn.cursor() as cursor:
+            with self.conn:
+                cursor = self.conn.cursor()
                 password_hash = hash_password(password)
                 cursor.execute('''
                 INSERT INTO users (username, email, password_hash, role)
-                VALUES (%s, %s, %s, 'admin')
+                VALUES (?, ?, ?, 'admin')
                 ''', (username, email, password_hash))
-                self.conn.commit()
                 return True
-        except mysql.connector.Error as e:
+        except sqlite3.Error as e:
             st.error(f"Erreur lors de la création du compte admin: {str(e)}")
             return False
 
     def request_admin_account(self, username: str, email: str, password: str, justification: str) -> bool:
         """Enregistre une demande de création de compte admin"""
         try:
-            with self.conn.cursor() as cursor:
+            with self.conn:
+                cursor = self.conn.cursor()
                 password_hash = hash_password(password)
                 cursor.execute('''
                 INSERT INTO admin_requests (username, email, password_hash, justification)
-                VALUES (%s, %s, %s, %s)
+                VALUES (?, ?, ?, ?)
                 ''', (username, email, password_hash, justification))
-                self.conn.commit()
                 return True
-        except mysql.connector.Error as e:
+        except sqlite3.Error as e:
             st.error(f"Erreur lors de la demande de compte admin: {str(e)}")
             return False
 
     def get_pending_admin_requests(self) -> List[Dict]:
         """Récupère les demandes de compte admin en attente"""
-        with self.conn.cursor(dictionary=True) as cursor:
-            cursor.execute('SELECT * FROM admin_requests WHERE status="pending"')
-            return cursor.fetchall()
+        cursor = self.conn.cursor()
+        cursor.execute('SELECT * FROM admin_requests WHERE status="pending"')
+        return [dict(row) for row in cursor.fetchall()]
 
     def approve_admin_request(self, request_id: int, approved_by: int) -> bool:
         """Approuve une demande de compte admin"""
         try:
-            with self.conn.cursor(dictionary=True) as cursor:
-                cursor.execute('SELECT * FROM admin_requests WHERE id=%s', (request_id,))
+            with self.conn:
+                cursor = self.conn.cursor()
+                cursor.execute('SELECT * FROM admin_requests WHERE id=?', (request_id,))
                 request = cursor.fetchone()
                 
                 if request:
                     cursor.execute('''
                     INSERT INTO users (username, email, password_hash, role)
-                    VALUES (%s, %s, %s, 'admin')
+                    VALUES (?, ?, ?, 'admin')
                     ''', (request['username'], request['email'], request['password_hash']))
                     
                     cursor.execute('''
                     UPDATE admin_requests 
-                    SET status="approved", approved_by=%s
-                    WHERE id=%s
+                    SET status="approved", approved_by=?
+                    WHERE id=?
                     ''', (approved_by, request_id))
-                    self.conn.commit()
                     return True
                 return False
-        except mysql.connector.Error as e:
+        except sqlite3.Error as e:
             st.error(f"Erreur lors de l'approbation: {str(e)}")
             return False
+
+    # Autres méthodes de gestion
+    def update_user_role(self, user_id: int, new_role: str) -> None:
+        """Met à jour le rôle d'un utilisateur"""
+        with self.conn:
+            self.conn.execute(
+                'UPDATE users SET role=?, updated_at=CURRENT_TIMESTAMP WHERE id=?',
+                (new_role, user_id))
+
+    def log_activity(self, user_id: int, action: str, details: str = "", ip_address: str = "") -> None:
+        """Enregistre une activité utilisateur"""
+        with self.conn:
+            self.conn.execute('''
+            INSERT INTO activity_logs (user_id, action, details, ip_address)
+            VALUES (?, ?, ?, ?)
+            ''', (user_id, action, details, ip_address))
+
+    def get_activity_logs(self, date_filter: str = None, user_id: int = None) -> List[Dict]:
+        """Récupère les logs d'activité avec filtres"""
+        query = '''
+        SELECT l.*, u.username 
+        FROM activity_logs l
+        JOIN users u ON l.user_id = u.id
+        WHERE 1=1
+        '''
+        params = []
+        
+        if date_filter:
+            query += ' AND date(l.created_at) = date(?)'
+            params.append(date_filter)
+        
+        if user_id:
+            query += ' AND l.user_id = ?'
+            params.append(user_id)
+        
+        query += ' ORDER BY l.created_at DESC'
+        
+        cursor = self.conn.cursor()
+        cursor.execute(query, params)
+        return [dict(row) for row in cursor.fetchall()]
 
 # =============================================
 # 3. FONCTIONS UTILITAIRES
@@ -397,14 +313,15 @@ def hash_password(password: str) -> str:
     """Hash un mot de passe avec SHA-256"""
     return hashlib.sha256(password.encode()).hexdigest()
 
-def get_db_connection() -> mysql.connector.MySQLConnection:
-    """Établit une connexion à la base de données MySQL"""
-    try:
-        conn = mysql.connector.connect(**MYSQL_CONFIG)
-        return conn
-    except mysql.connector.Error as err:
-        logger.error(f"Erreur de connexion à MySQL: {err}")
-        raise
+def get_db_connection() -> sqlite3.Connection:
+    """Établit une connexion persistante à la base de données"""
+    conn = sqlite3.connect(DATABASE_NAME, timeout=10)  # Augmentez le timeout
+    conn.row_factory = sqlite3.Row
+    conn.execute("PRAGMA foreign_keys = ON")
+    conn.execute("PRAGMA journal_mode = WAL")
+    conn.execute("PRAGMA synchronous = NORMAL")
+    conn.execute("PRAGMA wal_autocheckpoint = 100")  # Ajoutez ceci
+    return conn
 
 def init_session():
     """Initialise les variables de session"""
@@ -415,328 +332,39 @@ def init_session():
 def get_last_activity(user_manager: EnhancedUserManager) -> str:
     """Récupère la dernière activité enregistrée"""
     logs = user_manager.get_activity_logs()
-    return logs[0]['created_at'].strftime('%Y-%m-%d %H:%M') if logs else "Aucune"
-
-
-def generate_secure_token(length=32):
-    """Génère un token sécurisé pour les sessions"""
-    alphabet = string.ascii_letters + string.digits
-    return ''.join(secrets.choice(alphabet) for _ in range(length))
-
-def hash_password_secure(password: str) -> str:
-    """Hash un mot de passe avec bcrypt (plus sécurisé que SHA-256)"""
-    salt = bcrypt.gensalt()
-    return bcrypt.hashpw(password.encode('utf-8'), salt).decode('utf-8')
-
-def verify_password(hashed_password: str, input_password: str) -> bool:
-    """Vérifie un mot de passe contre son hash (support bcrypt et legacy SHA-256)"""
-    try:
-        # Essayer d'abord avec bcrypt
-        if hashed_password.startswith("$2b$") or hashed_password.startswith("$2a$"):
-            return bcrypt.checkpw(input_password.encode('utf-8'), hashed_password.encode('utf-8'))
-        
-        # Fallback pour l'ancien système SHA-256
-        return hashed_password == hash_password(input_password)
-    except Exception as e:
-        logger.error(f"Erreur de vérification de mot de passe: {str(e)}")
-        return False
-
-def check_csrf():
-    """Protection contre les attaques CSRF"""
-    if 'csrf_token' not in st.session_state:
-        st.session_state.csrf_token = generate_secure_token()
-    
-    if st.query_params.get('csrf_token'):
-        if st.query_params['csrf_token'] != st.session_state.csrf_token:
-            st.error("Token de sécurité invalide. Veuillez rafraîchir la page.")
-            st.stop()
-
-def migrate_password_hash(conn, user_id, plain_password):
-    """Migre un hash SHA-256 vers bcrypt"""
-    try:
-        new_hash = hash_password_secure(plain_password)
-        with conn.cursor() as cursor:
-            cursor.execute(
-                "UPDATE users SET password_hash=%s WHERE id=%s",
-                (new_hash, user_id)
-            )
-            conn.commit()
-        return True
-    except Exception as e:
-        logger.error(f"Erreur migration hash: {str(e)}")
-        return False
-
-# =============================================
-# 3. COMPOSANTS UI AMÉLIORÉS
-# =============================================
-def show_notification(message, notification_type="success", duration=3000):
-    """Affiche une notification stylisée"""
-    colors = {
-        "success": "#2ecc71",
-        "error": "#e74c3c",
-        "warning": "#f39c12",
-        "info": "#3498db"
-    }
-    
-    notification_html = f"""
-    <div class="notification" style="
-        position: fixed;
-        top: 20px;
-        right: 20px;
-        padding: 15px;
-        background: {colors[notification_type]};
-        color: white;
-        border-radius: 8px;
-        box-shadow: 0 4px 8px rgba(0,0,0,0.1);
-        z-index: 1000;
-        display: flex;
-        align-items: center;
-        animation: fadeIn 0.5s ease-out;
-    ">
-        <span style="margin-right: 10px;">{message}</span>
-    </div>
-    <script>
-        setTimeout(function() {{
-            document.querySelector('.notification').style.animation = 'fadeOut 0.5s ease-out';
-            setTimeout(function() {{
-                document.querySelector('.notification').remove();
-            }}, 500);
-        }}, {duration});
-    </script>
-    <style>
-        @keyframes fadeOut {{
-            from {{ opacity: 1; transform: translateY(0); }}
-            to {{ opacity: 0; transform: translateY(-20px); }}
-        }}
-    </style>
-    """
-    
-    st.components.v1.html(notification_html, height=0)
-
-def animated_rain_effect():
-    """Effet de pluie animé pour les succès"""
-    rain(
-        emoji="💰",
-        font_size=20,
-        falling_speed=5,
-        animation_length=1,
-    )
-
-def loading_spinner_with_message(message):
-    """Spinner de chargement avec message"""
-    with st.spinner(message):
-        time.sleep(1.5)
-
-# =============================================
-# STYLE ET THEME PERSONNALISE
-# =============================================
-def load_css():
-    st.markdown("""
-    <style>
-        :root {
-            --primary: #4a6fa5;
-            --secondary: #166088;
-            --accent: #4fc3f7;
-            --success: #4caf50;
-            --warning: #ff9800;
-            --danger: #f44336;
-            --light: #f8f9fa;
-            --dark: #212529;
-        }
-        
-        /* Animation d'entrée */
-        @keyframes fadeIn {
-            from { opacity: 0; transform: translateY(20px); }
-            to { opacity: 1; transform: translateY(0); }
-        }
-        
-        .animated {
-            animation: fadeIn 0.5s ease-out forwards;
-        }
-        
-        /* Boutons améliorés */
-        .stButton>button {
-            border-radius: 8px;
-            transition: all 0.3s;
-            box-shadow: 0 2px 5px rgba(0,0,0,0.1);
-        }
-        
-        .stButton>button:hover {
-            transform: translateY(-2px);
-            box-shadow: 0 4px 8px rgba(0,0,0,0.2);
-        }
-        
-        /* Cartes */
-        .card {
-            border-radius: 10px;
-            padding: 20px;
-            margin-bottom: 20px;
-            background: white;
-            box-shadow: 0 4px 12px rgba(0,0,0,0.1);
-            transition: all 0.3s;
-            border-left: 4px solid var(--primary);
-        }
-        
-        .card:hover {
-            transform: translateY(-5px);
-            box-shadow: 0 8px 16px rgba(0,0,0,0.15);
-        }
-        
-        /* Onglets */
-        .stTabs [role="tablist"] {
-            gap: 5px;
-        }
-        
-        .stTabs [role="tab"] {
-            border-radius: 8px 8px 0 0 !important;
-            padding: 10px 20px !important;
-            transition: all 0.3s;
-        }
-        
-        .stTabs [role="tab"][aria-selected="true"] {
-            background: var(--primary) !important;
-            color: white !important;
-            font-weight: bold;
-        }
-        
-        /* Formulaire */
-        .stTextInput>div>div>input, 
-        .stTextArea>div>div>textarea,
-        .stNumberInput>div>div>input,
-        .stSelectbox>div>div>select {
-            border-radius: 8px !important;
-            padding: 10px !important;
-        }
-        
-        /* Notification */
-        .notification {
-            border-radius: 8px;
-            padding: 15px;
-            margin: 10px 0;
-            box-shadow: 0 3px 10px rgba(0,0,0,0.1);
-            display: flex;
-            align-items: center;
-        }
-        
-        .notification-success {
-            background: #e8f5e9;
-            border-left: 4px solid var(--success);
-        }
-        
-        .notification-error {
-            background: #ffebee;
-            border-left: 4px solid var(--danger);
-        }
-        
-        .notification-warning {
-            background: #fff8e1;
-            border-left: 4px solid var(--warning);
-        }
-        
-        /* Effet de chargement */
-        @keyframes spin {
-            0% { transform: rotate(0deg); }
-            100% { transform: rotate(360deg); }
-        }
-        
-        .loader {
-            border: 4px solid #f3f3f3;
-            border-top: 4px solid var(--primary);
-            border-radius: 50%;
-            width: 30px;
-            height: 30px;
-            animation: spin 1s linear infinite;
-            margin: 0 auto;
-        }
-    </style>
-    """, unsafe_allow_html=True)
-
+    return logs[0]['created_at'][:16] if logs else "Aucune"
 
 # =============================================
 # 4. PAGES DE L'INTERFACE UTILISATEUR
 # =============================================
+
 def login_page():
-    """Page de connexion avec design amélioré"""
-    st.title("🔐 Connexion")
+    """Affiche la page de connexion"""
+    st.title("🔐 Connexion ")
     
-    # Effet de fond animé
-    st.markdown("""
-    <style>
-        @keyframes gradientBG {
-            0% { background-position: 0% 50%; }
-            50% { background-position: 100% 50%; }
-            100% { background-position: 0% 50%; }
-        }
+    with st.form("login_form"):
+        username = st.text_input("Nom d'utilisateur")
+        password = st.text_input("Mot de passe", type="password")
         
-        .login-container {
-            background: linear-gradient(-45deg, #ee7752, #e73c7e, #23a6d5, #23d5ab);
-            background-size: 400% 400%;
-            animation: gradientBG 15s ease infinite;
-            padding: 2em;
-            border-radius: 15px;
-            box-shadow: 0 10px 20px rgba(0,0,0,0.1);
-            color: white;
-        }
-    </style>
-    """, unsafe_allow_html=True)
-    
-    with st.container():
-        st.markdown('<div class="login-container">', unsafe_allow_html=True)
-        
-        with st.form("login_form"):
-            username = st.text_input("Nom d'utilisateur", placeholder="Entrez votre identifiant")
-            password = st.text_input("Mot de passe", type="password", placeholder="Entrez votre mot de passe")
-            
-            cols = st.columns([1, 1, 2])
-            with cols[0]:
-                login_btn = st.form_submit_button("Se connecter", type="primary")
-            
-            if login_btn:
-                try:
-                    conn = get_db_connection()
-                    user_manager = EnhancedUserManager(conn)
-                    user = user_manager.get_user_by_username(username)
-                    
-                    if user and verify_password(user['password_hash'], password):
-                        # Création de la session sécurisée
-                        st.session_state.authenticated = True
-                        st.session_state.user = user
-                        st.session_state.session_token = generate_secure_token()
-                        st.session_state.last_activity = datetime.now()
-                        
-                        # Journalisation
-                        user_manager.log_activity(
-                            user['id'],
-                            "Connexion réussie",
-                            f"Connexion depuis {st.experimental_get_query_params().get('client_ip', [''])[0]}",
-                            ip_address=st.query_params.get('client_ip', '')
-                        )
-                        
-                        # Notification et redirection
-                        show_notification("Connexion réussie! Redirection en cours...", "success")
-                        animated_rain_effect()
-                        time.sleep(1.5)
-                        st.rerun()
-                    else:
-                        show_notification("Identifiants incorrects", "error")
-                        logger.warning(f"Tentative de connexion échouée pour l'utilisateur: {username}")
+        if st.form_submit_button("Se connecter"):
+            try:
+                conn = get_db_connection()
+                user_manager = EnhancedUserManager(conn)
+                user = user_manager.get_user_by_username(username)
                 
-                except Exception as e:
-                    show_notification(f"Erreur de connexion: {str(e)}", "error")
-                    logger.error(f"Erreur de connexion: {str(e)}")
-                finally:
-                    if 'conn' in locals():
-                        conn.close()
-        
-        st.markdown('</div>', unsafe_allow_html=True)
-        
-        # Section d'aide
-        with st.expander("🔍 Aide à la connexion", expanded=False):
-            st.info("""
-            - Utilisez votre nom d'utilisateur et mot de passe fournis par l'administrateur
-            - Le système est sensible à la casse (majuscules/minuscules)
-            - Après 3 tentatives échouées, votre compte sera temporairement bloqué
-            """)
+                if user and user['password_hash'] == hash_password(password):
+                    st.session_state.authenticated = True
+                    st.session_state.user = dict(user)
+                    st.success("Connexion réussie!")
+                    time.sleep(1)
+                    st.rerun()
+                else:
+                    st.error("Identifiants incorrects")
+            except Exception as e:
+                st.error(f"Erreur de connexion: {str(e)}")
+            finally:
+                if 'conn' in locals():
+                    conn.close()
 
 def initial_admin_setup():
     """Page de configuration initiale du premier admin"""
@@ -811,7 +439,7 @@ def admin_approval_page(user_manager: EnhancedUserManager):
     for req in requests:
         with st.expander(f"Demande de {req['username']}"):
             st.write(f"**Email:** {req['email']}")
-            st.write(f"**Date:** {req['request_date'].strftime('%Y-%m-%d %H:%M')}")
+            st.write(f"**Date:** {req['request_date']}")
             st.write(f"**Justification:** {req['justification']}")
             
             if st.button(f"Approuver {req['username']}", key=f"approve_{req['id']}"):
@@ -819,6 +447,11 @@ def admin_approval_page(user_manager: EnhancedUserManager):
                     st.success("Demande approuvée!")
                     time.sleep(2)
                     st.rerun()
+
+def get_last_activity(user_manager: EnhancedUserManager) -> str:
+    """Récupère la dernière activité"""
+    logs = user_manager.get_activity_logs()
+    return logs[0]['created_at'][:16] if logs else "Aucune"
 
 def show_user_management(user_manager: EnhancedUserManager):
     """Affiche l'interface de gestion des utilisateurs"""
@@ -848,7 +481,7 @@ def show_user_management(user_manager: EnhancedUserManager):
                             f"Nouvel utilisateur: {new_username} (ID:{user_id})"
                         )
                         st.success(f"Utilisateur {new_username} créé avec succès!")
-                    except mysql.connector.Error as e:
+                    except sqlite3.IntegrityError as e:
                         st.error(str(e))
     
     # Liste et édition des utilisateurs
@@ -946,7 +579,7 @@ def show_activity_logs(user_manager: EnhancedUserManager):
     if logs:
         # Formatage des données pour l'affichage
         log_data = [{
-            "Date": log['created_at'].strftime('%Y-%m-%d %H:%M:%S'),
+            "Date": log['created_at'][:19],
             "Utilisateur": log['username'],
             "Action": log['action'],
             "Détails": log.get('details', ''),
@@ -992,97 +625,55 @@ def show_system_settings():
         )
         
         if st.form_submit_button("Enregistrer les paramètres"):
+            # Ici vous pourriez sauvegarder dans un fichier de config ou une table dédiée
             st.success("Paramètres système mis à jour!")
 
 
 def admin_dashboard():
-    """Tableau de bord admin avec nouveau design"""
+    """Tableau de bord principal de l'administrateur"""
+    # Configuration de la page
     st.set_page_config(
         page_title="GESTION BANQUE",
         page_icon="assets/logo.png",
         layout="wide",
         initial_sidebar_state="expanded"
     )
+
+    def load_image(image_path):
+        return Image.open(image_path)
+
+    logo_img = load_image("assets/logo.png")
     
-    load_css()
-    
-    # Sidebar stylisée
+    # Barre latérale
     with st.sidebar:
-        st.image("assets/logo.png", width=150)
-        st.markdown(f"<h3 style='text-align: center; color: #4a6fa5;'>{st.session_state.user['username']}</h3>", unsafe_allow_html=True)
-        st.markdown(f"<p style='text-align: center; color: #666;'>{st.session_state.user['role'].capitalize()}</p>", unsafe_allow_html=True)
+        st.image(logo_img, width=20, use_column_width=True)
+        st.markdown(f"### {st.session_state.user['username']}")
+        st.markdown(f"*Rôle: {st.session_state.user['role']}*")
         
-        add_vertical_space(2)
-        
-        # Menu de navigation
-        selected = option_menu(
-            menu_title=None,
-            options=["Tableau de bord", "Utilisateurs", "Activités", "Paramètres"],
-            icons=["speedometer2", "people-fill", "activity", "gear"],
-            default_index=0,
-            styles={
-                "container": {"padding": "0!important", "background-color": "#f8f9fa"},
-                "icon": {"color": "#4a6fa5", "font-size": "16px"}, 
-                "nav-link": {
-                    "font-size": "14px",
-                    "text-align": "left",
-                    "margin": "5px 0",
-                    "border-radius": "8px",
-                    "padding": "10px 15px",
-                },
-                "nav-link-selected": {
-                    "background-color": "#4a6fa5",
-                    "color": "white",
-                },
-            }
-        )
-        
-        add_vertical_space(2)
-        
-        if st.button("🚪 Déconnexion", use_container_width=True):
+        if st.button("🔄 Rafraîchir"):
+            st.rerun()
+            
+        if st.button("🚪 Déconnexion"):
             st.session_state.authenticated = False
             st.session_state.user = None
-            show_notification("Déconnexion réussie", "success", "👋")
-            time.sleep(1)
             st.rerun()
     
     # Contenu principal
-    st.markdown(f"<h1 style='color: #4a6fa5;'>Tableau de bord Administrateur</h1>", unsafe_allow_html=True)
+    st.title("🏛 Tableau de bord Administrateur")
     
     try:
         conn = get_db_connection()
         user_manager = EnhancedUserManager(conn)
         
-        cols = st.columns(4)
-        with cols[0]:
-            st.metric(label="👥 Utilisateurs actifs", value=user_manager.count_active_users())
-        with cols[1]:
-            st.metric(label="🕒 Dernière activité", value=get_last_activity(user_manager))
-        with cols[2]:
-            st.metric(label="📊 Actions aujourd'hui", value=len(user_manager.get_activity_logs(date_filter=datetime.now().date())))
-        with cols[3]:
-            st.metric(label="⏳ Demandes en attente", value=len(user_manager.get_pending_admin_requests()))
-
-        style_metric_cards()
+        # Métriques
+        col1, col2, col3 = st.columns(3)
+        with col1:
+            st.metric("Utilisateurs actifs", user_manager.count_active_users())
+        with col2:
+            st.metric("Dernière activité", get_last_activity(user_manager))
+        with col3:
+            st.metric("Actions aujourd'hui", len(user_manager.get_activity_logs(date_filter=datetime.now().date())))
         
-        # Graphiques avec Plotly
-        st.markdown("## Activité récente")
-        logs = user_manager.get_activity_logs()
-        if logs:
-            df_logs = pd.DataFrame(logs)
-            df_logs['date'] = pd.to_datetime(df_logs['created_at']).dt.date
-            
-            # Graphique d'activité
-            fig = px.bar(
-                df_logs.groupby(['date', 'action']).size().reset_index(name='count'),
-                x='date',
-                y='count',
-                color='action',
-                title="Activité par jour",
-                color_discrete_sequence=px.colors.qualitative.Pastel
-            )
-            st.plotly_chart(fig, use_container_width=True)
-
         # Onglets
         tab1, tab2, tab3 = st.tabs(["👥 Gestion Utilisateurs", "📊 Activités", "⚙ Paramètres"])
         
@@ -1094,26 +685,9 @@ def admin_dashboard():
         
         with tab3:
             show_system_settings()
-        
-        
-        # Dernières activités
-        #st.markdown("## Dernières activités")
-        #if logs:
-        #    with st.expander("Voir les dernières activités", expanded=True):
-        #        st.dataframe(
-        #            df_logs.head(10),
-        #            use_container_width=True,
-        #            hide_index=True,
-        #            column_config={
-        #                "created_at": st.column_config.DatetimeColumn("Date"),
-        #                "action": "Action",
-        #                "username": "Utilisateur",
-        #                "details": "Détails"
-        #            }
-        #        )
-        
+    
     except Exception as e:
-        show_notification(f"Erreur: {str(e)}", "error", "❌")
+        st.error(f"Erreur: {str(e)}")
     finally:
         if 'conn' in locals():
             conn.close()
@@ -1122,7 +696,10 @@ def admin_dashboard():
 def check_authentication(required_role: str = None) -> None:
     """
     Vérifie si l'utilisateur est authentifié et a le rôle requis
+    Args:
+        required_role: Rôle requis pour accéder à la page (optionnel)
     """
+
     # Vérifie si un admin existe
     conn = get_db_connection()
     user_manager = EnhancedUserManager(conn)
@@ -1158,6 +735,7 @@ def check_authentication(required_role: str = None) -> None:
             f"Tentative d'accès non autorisé par {st.session_state['username']} "
             f"(requiert: {required_role})"
         )
+        
 
 def logout() -> None:
     """
@@ -1172,22 +750,23 @@ def logout() -> None:
 # 5. FONCTION PRINCIPALE
 # =============================================
 
-
 def main():
-    """Point d'entrée principal avec animations"""
+    """Point d'entrée principal de l'application"""
     init_session()
+
+    if not os.path.exists(DATABASE_NAME):
+        logger.warning("La base de données n'existe pas, création...")
     
-    # Vérifie si les tables existent, sinon les crée
+    # Crée une sauvegarde au démarrage
     try:
-        conn = get_db_connection()
-        user_manager = EnhancedUserManager(conn)
-        conn.close()
+        db = BankDatabase()
+        db.backup_database(f"{DATABASE_NAME}.backup")
     except Exception as e:
         logger.error(f"Erreur initiale: {str(e)}")
-        show_notification(f"Erreur de connexion à la base de données: {str(e)}", "error", "❌")
 
     check_authentication()
 
+ 
 def show_admin_dashboard():
     """Page de tableau de bord pour les utilisateurs non admin"""
     # Configuration de la page
@@ -1259,12 +838,20 @@ def show_admin_dashboard():
             logs = user_manager.get_activity_logs(user_id=st.session_state.user['id'])
             if logs:
                 st.dataframe(pd.DataFrame([{
-                    "Date": log['created_at'].strftime('%Y-%m-%d %H:%M:%S'),
+                    "Date": log['created_at'],
                     "Action": log['action'],
                     "Détails": log.get('details', '')
                 } for log in logs]))
             else:
                 st.info("Aucune activité récente")
+
+        # Ajoutez ceci au début de votre script
+        st.session_state.setdefault('force_refresh', True)
+
+        if st.session_state.force_refresh:
+            time.sleep(0.1)  # Pause minimale
+            st.session_state.force_refresh = False
+            st.rerun()  # Force le rechargement propre
 
         # Initialisation des composants
         db = BankDatabase()
@@ -1925,16 +1512,7 @@ def show_admin_dashboard():
                 
                 transactions = db.get_all_transactions()
                 if transactions:
-                    # Convertir les dates en strings pour le formatage
                     df = pd.DataFrame(transactions)
-                    df['date_str'] = df['date'].dt.strftime('%Y-%m-%d %H:%M')  # Conversion datetime -> string
-                    
-                    # Utiliser la colonne convertie pour l'affichage
-                    selected_transaction = st.selectbox(
-                        "Sélectionner une transaction",
-                        options=df.to_dict('records'),
-                        format_func=lambda t: f"#{t['id']} • {t['type']} • {t['amount']:.2f}XAF • {t['date_str']} • {t.get('description', '')[:30]}"
-                    )
                     
                     # Filtrage basé sur la recherche
                     if search_query:
@@ -2090,17 +1668,16 @@ def show_admin_dashboard():
                         st.metric("📄 Reçus générés", 0)
                 
                 with col2:
-                    transactions = db.get_all_transactions()
-                    transactions_count = len(transactions) if transactions else 0
+                    transactions_count = len(db.get_all_transactions())
                     st.metric("💸 Transactions éligibles", transactions_count)
+            
+            # Sélection de la transaction
+            st.subheader("Sélection de la transaction", divider="blue")
+            transactions = db.get_all_transactions()
             
             if not transactions:
                 st.warning("Aucune transaction disponible pour générer un reçu.")
                 st.stop()
-            
-            # Conversion des dates en format string pour l'affichage
-            df_transactions = pd.DataFrame(transactions)
-            df_transactions['date_str'] = df_transactions['date'].dt.strftime('%Y-%m-%d %H:%M')
             
             # Barre de recherche améliorée
             search_cols = st.columns([4, 1])
@@ -2111,9 +1688,9 @@ def show_admin_dashboard():
                 transaction_type_filter = st.selectbox("Filtrer", ["Tous"] + list(set(t['type'] for t in transactions)))
             
             # Filtrage des transactions
-            filtered_transactions = df_transactions.to_dict('records')
+            filtered_transactions = transactions
             if search_query:
-                filtered_transactions = [t for t in filtered_transactions if search_query.lower() in str(t).lower()]
+                filtered_transactions = [t for t in transactions if search_query.lower() in str(t).lower()]
             if transaction_type_filter != "Tous":
                 filtered_transactions = [t for t in filtered_transactions if t['type'] == transaction_type_filter]
             
@@ -2125,10 +1702,10 @@ def show_admin_dashboard():
             selected_transaction = st.selectbox(
                 "Choisir une transaction à documenter",
                 options=filtered_transactions,
-                format_func=lambda t: f"#{t['id']} • {t['type']} • {t['amount']:.2f}XAF • {t['date_str']} • {t.get('description', '')[:30]}{'...' if len(t.get('description', '')) > 30 else ''}",
+                format_func=lambda t: f"#{t['id']} • {t['type']} • {t['amount']:.2f}XAF • {t['date'].split()[0]} • {t.get('description', '')[:30]}{'...' if len(t.get('description', '')) > 30 else ''}",
                 index=0
             )
-
+            
             # Récupération des données
             transaction_data = selected_transaction
             client_data = db.get_client_by_id(transaction_data['client_id'])
@@ -2146,7 +1723,7 @@ def show_admin_dashboard():
                 
                 with tab2:
                     st.write(f"**💰 Montant:** {transaction_data['amount']:.2f}XAF")
-                    st.write(f"**📅 Date:** {transaction_data['date_str']}")  # Utilisation de la version string
+                    st.write(f"**📅 Date:** {transaction_data['date']}")
                     st.write(f"**🔢 Référence:** {transaction_data['id']}")
                     st.write(f"**🏦 IBAN:** {iban_data['iban']}")
                     st.write(f"**📝 Description:** {transaction_data.get('description', 'Aucune description')}")
@@ -2182,107 +1759,75 @@ def show_admin_dashboard():
             # Génération du PDF
             if submitted:
                 with st.spinner("Génération du reçu en cours..."):
-                    try:
-                        # Sauvegarde temporaire du logo
-                        logo_path = None
-                        if company_logo:
-                            logo_path = f"temp_logo_{transaction_data['id']}.png"
-                            with open(logo_path, "wb") as f:
-                                f.write(company_logo.getbuffer())
-                        
-                        # Gestion robuste des différents formats de date
-                        date_value = transaction_data['date']
-                        
-                        if isinstance(date_value, pd.Timestamp):
-                            formatted_date = date_value.strftime('%d/%m/%Y %H:%M')
-                        elif isinstance(date_value, datetime.datetime):
-                            formatted_date = date_value.strftime('%d/%m/%Y %H:%M')
-                        elif isinstance(date_value, str):
-                            try:
-                                # Essayer de parser si c'est une string
-                                parsed_date = datetime.strptime(date_value, '%Y-%m-%d %H:%M:%S')
-                                formatted_date = parsed_date.strftime('%d/%m/%Y %H:%M')
-                            except ValueError:
-                                # Si le parsing échoue, utiliser la valeur directement
-                                formatted_date = date_value
-                        else:
-                            formatted_date = "Date non disponible"
-                        
-                        # Création d'une copie des données avec la date formatée
-                        receipt_data = {
-                            **transaction_data,
-                            'date_str': formatted_date,
-                            'formatted_amount': f"{transaction_data['amount']:,.2f} XAF"
-                        }
-                        
-                        # Génération du PDF
-                        pdf_path = generate_receipt_pdf(
-                            transaction_data=receipt_data,
-                            client_data=client_data,
-                            iban_data=iban_data,
-                            company_name=company_name,
-                            logo_path=logo_path,
-                            receipt_title=receipt_title,
-                            additional_notes=additional_notes,
-                            include_signature=include_signature,
-                            include_qr=include_qr
-                        )
-                        
-                        # Nettoyage du logo temporaire
-                        if logo_path and os.path.exists(logo_path):
-                            os.remove(logo_path)
-                        
-                        # Téléchargement
-                        with open(pdf_path, "rb") as f:
-                            st.download_button(
-                                label="⬇️ Télécharger le reçu",
-                                data=f,
-                                file_name=f"reçu_{transaction_data['id']}.pdf",
-                                mime="application/pdf",
-                                use_container_width=True
-                            )
-                        
-                        # Aperçu stylisé
-                        st.success("Reçu généré avec succès !")
-                        st.markdown("**Aperçu:** (le PDF peut différer légèrement)")
-                        
-                        # Simulation d'aperçu
-                        with st.container():
-                            st.markdown(f"""
-                            <div class="receipt-preview">
-                                <div class="receipt-header">
-                                    <h1>{company_name}</h1>
-                                    {f'<img src="data:image/png;base64,{base64.b64encode(company_logo.getvalue()).decode()}" class="receipt-logo">' if company_logo else ''}
-                                    <h2>{receipt_title}</h2>
-                                </div>
-                                <div class="receipt-body">
-                                    <div class="receipt-section">
-                                        <h3>Informations Client</h3>
-                                        <p><strong>Nom:</strong> {client_data['first_name']} {client_data['last_name']}</p>
-                                        <p><strong>IBAN:</strong> {iban_data['iban']}</p>
-                                    </div>
-                                    <div class="receipt-section">
-                                        <h3>Détails de la Transaction</h3>
-                                        <p><strong>Type:</strong> {transaction_data['type']}</p>
-                                        <p><strong>Montant:</strong> {receipt_data['formatted_amount']}</p>
-                                        <p><strong>Date:</strong> {formatted_date}</p>
-                                        <p><strong>Référence:</strong> {transaction_data['id']}</p>
-                                    </div>
-                                    <div class="receipt-notes">
-                                        <p>{additional_notes.replace('\n', '<br>')}</p>
-                                    </div>
-                                    {'''<div class="receipt-signature">
-                                        <p>Signature</p>
-                                        <div class="signature-line"></div>
-                                    </div>''' if include_signature else ''}
-                                </div>
-                            </div>
-                            """, unsafe_allow_html=True)
+                    # Sauvegarde temporaire du logo
+                    logo_path = None
+                    if company_logo:
+                        logo_path = f"temp_logo_{transaction_data['id']}.png"
+                        with open(logo_path, "wb") as f:
+                            f.write(company_logo.getbuffer())
                     
-                    except Exception as e:
-                        st.error(f"Erreur lors de la génération du reçu: {str(e)}")
-                        if logo_path and os.path.exists(logo_path):
-                            os.remove(logo_path)
+                    pdf_path = generate_receipt_pdf(
+                        transaction_data=transaction_data,
+                        client_data=client_data,
+                        iban_data=iban_data,
+                        company_name=company_name,
+                        logo_path=logo_path,
+                        receipt_title=receipt_title,
+                        additional_notes=additional_notes,
+                        include_signature=include_signature,
+                        include_qr=include_qr  # Utilisez le même nom que dans la fonction
+                    )
+                    
+                    # Nettoyage du logo temporaire
+                    if logo_path and os.path.exists(logo_path):
+                        os.remove(logo_path)
+                    
+                    # Téléchargement
+                    with open(pdf_path, "rb") as f:
+                        st.download_button(
+                            label="⬇️ Télécharger le reçu",
+                            data=f,
+                            file_name=f"reçu_{transaction_data['id']}.pdf",
+                            mime="application/pdf",
+                            use_container_width=True
+                        )
+                    
+                    # Aperçu stylisé
+                    st.success("Reçu généré avec succès !")
+                    st.markdown("**Aperçu:** (le PDF peut différer légèrement)")
+                    
+                    # Simulation d'aperçu
+                    with st.container():
+                        st.markdown(f"""
+                        <div class="receipt-preview">
+                            <div class="receipt-header">
+                                <h1>{company_name}</h1>
+                                {f'<img src="data:image/png;base64,{base64.b64encode(company_logo.getvalue()).decode()}" class="receipt-logo">' if company_logo else ''}
+                                <h2>{receipt_title}</h2>
+                            </div>
+                            <div class="receipt-body">
+                                <div class="receipt-section">
+                                    <h3>Informations Client</h3>
+                                    <p><strong>Nom:</strong> {client_data['first_name']} {client_data['last_name']}</p>
+                                    <p><strong>IBAN:</strong> {iban_data['iban']}</p>
+                                </div>
+                                <div class="receipt-section">
+                                    <h3>Détails de la Transaction</h3>
+                                    <p><strong>Type:</strong> {transaction_data['type']}</p>
+                                    <p><strong>Montant:</strong>{transaction_data['amount']:,.2f} XAF</p>
+                                    <p><strong>Date:</strong> {transaction_data['date']}</p>
+                                    <p><strong>Référence:</strong> {transaction_data['id']}</p>
+                                </div>
+                                <div class="receipt-notes">
+                                    <p>{additional_notes.replace('\n', '<br>')}</p>
+                                </div>
+                                {'''<div class="receipt-signature">
+                                    <p>Signature</p>
+                                    <div class="signature-line"></div>
+                                </div>''' if include_signature else ''}
+                            </div>
+                        </div>
+                        """, unsafe_allow_html=True)
 
         # Ajoutez cette section dans votre page "Reçus" (ou créez une nouvelle page)
         elif selected == "Reçus RIB":
